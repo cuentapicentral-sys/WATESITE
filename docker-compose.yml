@@ -1,0 +1,203 @@
+services:
+  rabbitmq:
+    image: rabbitmq:3.13-management-alpine
+    ports:
+      - "5672:5672"
+      - "15672:15672"
+    healthcheck:
+      test: ["CMD", "rabbitmq-diagnostics", "-q", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+
+  backend:
+    build:
+      context: .
+      dockerfile: backend/Dockerfile
+    env_file:
+      - ./backend/.env
+    ports:
+      - "8001:8001"
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8001/api/health')"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+      args:
+        VITE_API_BASE_URL: /api
+        VITE_SERVICE_API_PREFIX: /services
+    depends_on:
+      backend:
+        condition: service_healthy
+      container-service:
+        condition: service_started
+      route-service:
+        condition: service_started
+      fleet-service:
+        condition: service_started
+      citizen-service:
+        condition: service_started
+      sensor-service:
+        condition: service_started
+      reporting-service:
+        condition: service_started
+      notification-service:
+        condition: service_started
+      analytics-service:
+        condition: service_started
+    ports:
+      - "5173:80"
+    environment:
+      BACKEND_HOSTPORT: backend:8001
+      CONTAINER_SERVICE_HOSTPORT: container-service:8000
+      ROUTE_SERVICE_HOSTPORT: route-service:8000
+      FLEET_SERVICE_HOSTPORT: fleet-service:8000
+      CITIZEN_SERVICE_HOSTPORT: citizen-service:8000
+      SENSOR_SERVICE_HOSTPORT: sensor-service:8000
+      REPORTING_SERVICE_HOSTPORT: reporting-service:8000
+      NOTIFICATION_SERVICE_HOSTPORT: notification-service:8000
+      ANALYTICS_SERVICE_HOSTPORT: analytics-service:8000
+    restart: unless-stopped
+
+  container-service:
+    build:
+      context: .
+      dockerfile: services/Dockerfile
+      args:
+        SERVICE_MODULE: services.containers.main
+    env_file:
+      - ./backend/.env
+    environment:
+      RABBITMQ_URL: amqp://guest:guest@rabbitmq:5672/%2F
+    depends_on:
+      rabbitmq:
+        condition: service_healthy
+    ports:
+      - "8101:8000"
+    restart: unless-stopped
+
+  route-service:
+    build:
+      context: .
+      dockerfile: services/Dockerfile
+      args:
+        SERVICE_MODULE: services.routes.main
+    env_file:
+      - ./backend/.env
+    environment:
+      RABBITMQ_URL: amqp://guest:guest@rabbitmq:5672/%2F
+    depends_on:
+      rabbitmq:
+        condition: service_healthy
+    ports:
+      - "8102:8000"
+    restart: unless-stopped
+
+  fleet-service:
+    build:
+      context: .
+      dockerfile: services/Dockerfile
+      args:
+        SERVICE_MODULE: services.fleet.main
+    env_file:
+      - ./backend/.env
+    environment:
+      RABBITMQ_URL: amqp://guest:guest@rabbitmq:5672/%2F
+    depends_on:
+      rabbitmq:
+        condition: service_healthy
+    ports:
+      - "8103:8000"
+    restart: unless-stopped
+
+  citizen-service:
+    build:
+      context: .
+      dockerfile: services/Dockerfile
+      args:
+        SERVICE_MODULE: services.citizens.main
+    env_file:
+      - ./backend/.env
+    environment:
+      RABBITMQ_URL: amqp://guest:guest@rabbitmq:5672/%2F
+    depends_on:
+      rabbitmq:
+        condition: service_healthy
+    ports:
+      - "8104:8000"
+    restart: unless-stopped
+
+  sensor-service:
+    build:
+      context: .
+      dockerfile: services/Dockerfile
+      args:
+        SERVICE_MODULE: services.sensors.main
+    env_file:
+      - ./backend/.env
+    environment:
+      RABBITMQ_URL: amqp://guest:guest@rabbitmq:5672/%2F
+    depends_on:
+      rabbitmq:
+        condition: service_healthy
+    ports:
+      - "8105:8000"
+    restart: unless-stopped
+
+  reporting-service:
+    build:
+      context: .
+      dockerfile: services/Dockerfile
+      args:
+        SERVICE_MODULE: services.reporting.main
+    env_file:
+      - ./backend/.env
+    environment:
+      RABBITMQ_URL: amqp://guest:guest@rabbitmq:5672/%2F
+    depends_on:
+      rabbitmq:
+        condition: service_healthy
+    ports:
+      - "8106:8000"
+    restart: unless-stopped
+
+  notification-service:
+    build:
+      context: .
+      dockerfile: services/Dockerfile
+      args:
+        SERVICE_MODULE: services.notifications.main
+    env_file:
+      - ./backend/.env
+    environment:
+      RABBITMQ_URL: amqp://guest:guest@rabbitmq:5672/%2F
+    depends_on:
+      rabbitmq:
+        condition: service_healthy
+    ports:
+      - "8107:8000"
+    restart: unless-stopped
+
+  analytics-service:
+    build:
+      context: .
+      dockerfile: services/Dockerfile
+      args:
+        SERVICE_MODULE: services.analytics.main
+    env_file:
+      - ./backend/.env
+    environment:
+      RABBITMQ_URL: amqp://guest:guest@rabbitmq:5672/%2F
+    depends_on:
+      rabbitmq:
+        condition: service_healthy
+    ports:
+      - "8108:8000"
+    restart: unless-stopped
