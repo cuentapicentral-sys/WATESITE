@@ -92,7 +92,7 @@ function renderAuth(mode = 'login', feedback = '') {
       <section class="auth-art">
         <div class="auth-art-glow glow-one"></div>
         <div class="auth-art-glow glow-two"></div>
-        <div class="auth-brand"><span class="brand-mark">W</span><strong>WasteWise</strong></div>
+        <div class="auth-brand"><img class="brand-logo" src="/logo.png" alt="EcoUrbana" /></div>
         <div class="auth-art-copy">
           <span class="auth-kicker">Municipal operations platform</span>
           <h1>Una ciudad más limpia empieza con mejores decisiones.</h1>
@@ -353,8 +353,7 @@ async function renderDashboard(selectedView = 'dashboard') {
             <span></span>
           </button>
           <div class="mobile-brand-mini">
-            <span class="brand-mark">W</span>
-            <span>WasteWise</span>
+            <img class="brand-logo" src="/logo.png" alt="EcoUrbana" />
           </div>
           <button class="logout-btn" id="logout-mobile" aria-label="Cerrar sesión">↗</button>
         </div>
@@ -377,11 +376,7 @@ async function renderDashboard(selectedView = 'dashboard') {
 
         <aside class="sidebar">
           <div class="brand">
-            <div class="brand-mark">◒</div>
-            <div>
-              <h2>WasteWise</h2>
-              <span>Gestión de residuos y<br />servicios urbanos</span>
-            </div>
+            <img class="brand-logo" src="/logo.png" alt="EcoUrbana, gestión de residuos y servicios urbanos" />
           </div>
 
           <nav class="menu">

@@ -1491,6 +1491,26 @@ button {
 .container-table { padding: 14px 16px; border-radius: 13px; }.container-table-head, .container-table-row { display: grid; grid-template-columns: 1fr 1fr 1.1fr .8fr auto; gap: 12px; align-items: center; }.container-table-head { padding-bottom: 8px; color: var(--muted); border-bottom: 1px solid #e7efeb; font-size: .58rem; }.container-table-row { min-height: 48px; border-bottom: 1px solid #eef3f0; color: var(--muted); font-size: .68rem; }.container-table-row:last-child { border-bottom: 0; }.container-table-row strong { color: var(--text); }.container-table-row span { display: flex; align-items: center; gap: 5px; }.container-table-row time { color: var(--muted); }.container-table-row .card-actions { margin: 0; }.container-table-row .chip { padding: 5px 8px; font-size: .62rem; }.visually-hidden { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0,0,0,0); }
 .sensor-layout { display: grid; grid-template-columns: .95fr 1.05fr; gap: 16px; margin-bottom: 16px; }.sensor-level { display: grid; grid-template-columns: 130px 1fr; gap: 10px 22px; align-items: center; }.sensor-level .panel-header { grid-column: 1 / -1; margin-bottom: 0; }.sensor-donut { width: 128px; height: 128px; display: grid; place-content: center; justify-items: center; border: 12px solid #d8eee1; border-right-color: #137b50; border-bottom-color: #2fa16d; border-radius: 50%; transform: rotate(-25deg); }.sensor-donut strong, .sensor-donut small { transform: rotate(25deg); }.sensor-donut strong { font-size: 1.35rem; }.sensor-donut small { color: var(--muted); font-size: .62rem; }.sensor-legend { display: grid; gap: 11px; font-size: .68rem; }.sensor-legend span { display: flex; align-items: center; gap: 7px; }.sensor-legend b { margin-left: auto; }.sensor-events { padding: 14px 16px; }.event-grid { display: grid; grid-template-columns: .65fr .9fr 1.4fr; gap: 0 12px; font-size: .68rem; }.event-grid > * { padding: 8px 0; border-bottom: 1px solid #eef3f0; }.event-grid > span:nth-child(-n+3) { color: var(--muted); font-size: .58rem; }.event-grid span { display: flex; align-items: center; gap: 5px; }.event-grid time { color: var(--muted); }.event-grid strong { font-size: .65rem; }
 
+.brand-logo {
+  display: block;
+  width: 100%;
+  max-width: 176px;
+  height: auto;
+  object-fit: contain;
+}
+
+.auth-brand .brand-logo {
+  width: min(240px, 78%);
+  max-width: 240px;
+}
+
+.mobile-brand-mini .brand-logo {
+  width: 118px;
+  height: 42px;
+  object-fit: cover;
+  object-position: center 22%;
+}
+
 @media (max-width: 720px) {
   .service-stats { grid-template-columns: repeat(2, 1fr); }
   .sensor-layout { grid-template-columns: 1fr; }
