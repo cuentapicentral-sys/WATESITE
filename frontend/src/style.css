@@ -1494,21 +1494,24 @@ button {
 .brand-logo {
   display: block;
   width: 100%;
-  max-width: 176px;
+  max-width: 188px;
   height: auto;
   object-fit: contain;
+  background: #fff;
+  border-radius: 16px;
+  box-shadow: 0 8px 22px rgba(0, 0, 0, 0.16);
 }
 
 .auth-brand .brand-logo {
-  width: min(240px, 78%);
-  max-width: 240px;
+  width: min(280px, 82%);
+  max-width: 280px;
 }
 
 .mobile-brand-mini .brand-logo {
-  width: 118px;
-  height: 42px;
-  object-fit: cover;
-  object-position: center 22%;
+  width: 148px;
+  max-width: 46vw;
+  height: auto;
+  border-radius: 10px;
 }
 
 @media (max-width: 720px) {
