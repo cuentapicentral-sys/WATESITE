@@ -144,9 +144,9 @@ for all using (true) with check (true);
 
 insert into public.containers (code, zone, latitude, longitude, fill_level, status)
 values
-  ('C-240', 'Centro', 40.4168, -3.7038, 92, 'critical'),
-  ('C-155', 'Norte', 40.4250, -3.6900, 64, 'normal'),
-  ('C-311', 'Sur', 40.4100, -3.7200, 88, 'critical')
+  ('C-240', 'Centro', 8.7526, -75.8812, 92, 'critical'),
+  ('C-155', 'Norte', 8.7784, -75.8608, 64, 'normal'),
+  ('C-311', 'Sur', 8.7242, -75.8874, 88, 'critical')
 on conflict (code) do nothing;
 
 insert into public.routes (route_code, area, eta, status)

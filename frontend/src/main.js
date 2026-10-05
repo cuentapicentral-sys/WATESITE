@@ -203,6 +203,87 @@ function countFillBand(containers, min, max) {
   }).length
 }
 
+const MONTERIA = { lat: 8.74798, lng: -75.88143 }
+const MONTERIA_SPOTS = [
+  { zone: 'centro', place: 'Ronda del Sinú', lat: 8.7526, lng: -75.8812 },
+  { zone: 'centro', place: 'Parque Simón Bolívar', lat: 8.7489, lng: -75.8818 },
+  { zone: 'centro', place: 'Mercado del Centro', lat: 8.7558, lng: -75.8864 },
+  { zone: 'centro', place: 'Alcaldía de Montería', lat: 8.7472, lng: -75.8836 },
+  { zone: 'norte', place: 'La Granja', lat: 8.7784, lng: -75.8608 },
+  { zone: 'norte', place: 'El Recreo', lat: 8.7688, lng: -75.8706 },
+  { zone: 'norte', place: 'Universidad de Córdoba', lat: 8.7892, lng: -75.8586 },
+  { zone: 'sur', place: 'Villa Jiménez', lat: 8.7242, lng: -75.8874 },
+  { zone: 'sur', place: 'Cantaclaro', lat: 8.7318, lng: -75.8742 },
+  { zone: 'este', place: 'Los Robles', lat: 8.7504, lng: -75.8518 },
+  { zone: 'este', place: 'La Pradera', lat: 8.7446, lng: -75.8462 },
+  { zone: 'oeste', place: 'El Amparo', lat: 8.7416, lng: -75.9068 },
+  { zone: 'oeste', place: 'Rancho Grande', lat: 8.7338, lng: -75.8688 },
+]
+
+function isInMonteria(latitude, longitude) {
+  return Number.isFinite(latitude) && Number.isFinite(longitude) && latitude >= 8.68 && latitude <= 8.82 && longitude >= -75.96 && longitude <= -75.82
+}
+
+function locateContainer(container) {
+  const latitude = Number(container.latitude)
+  const longitude = Number(container.longitude)
+  if (isInMonteria(latitude, longitude)) return { ...container, latitude, longitude, place: container.place || 'Montería' }
+  const zone = String(container.zone || '').toLowerCase()
+  const matches = MONTERIA_SPOTS.filter(spot => zone.includes(spot.zone))
+  const spots = matches.length ? matches : MONTERIA_SPOTS
+  const seed = [...String(container.code || container.id || 'C')].reduce((sum, char, index) => sum + char.charCodeAt(0) * (index + 1), 0)
+  const spot = spots[seed % spots.length]
+  return { ...container, latitude: spot.lat, longitude: spot.lng, place: spot.place }
+}
+
+function mountContainerMap(containers) {
+  const node = document.getElementById('containers-map')
+  if (!node || !window.L) return
+  if (window.wastewiseMap) {
+    window.wastewiseMap.remove()
+    window.wastewiseMap = null
+  }
+  const map = window.L.map(node).setView([MONTERIA.lat, MONTERIA.lng], 13)
+  window.L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+    maxZoom: 19,
+    attribution: '&copy; OpenStreetMap · Montería, Córdoba',
+  }).addTo(map)
+  const bounds = []
+  containers.map(locateContainer).forEach(container => {
+    const color = container.status === 'critical' || Number(container.fill_level) >= 90 ? '#dc4a4e' : Number(container.fill_level) >= 75 ? '#d99c22' : '#1f8f5f'
+    const marker = window.L.marker([container.latitude, container.longitude], {
+      icon: window.L.divIcon({
+        className: 'bin-marker',
+        html: `<span style="background:${color}">▣</span>`,
+        iconSize: [30, 30],
+        iconAnchor: [15, 15],
+      }),
+    }).addTo(map)
+    marker.bindPopup(`<strong>${container.code}</strong><br>${container.place} · ${container.zone}<br>Llenado ${container.fill_level}%`)
+    marker.on('click', () => {
+      const form = document.querySelector('#container-form')
+      if (!form) return
+      form.elements.id.value = container.id || ''
+      form.elements.code.value = container.code || ''
+      form.elements.zone.value = container.zone || ''
+      form.elements.fill_level.value = container.fill_level ?? ''
+      form.elements.status.value = container.status === 'critical' ? 'critical' : 'normal'
+      form.elements.latitude.value = Number(container.latitude).toFixed(6)
+      form.elements.longitude.value = Number(container.longitude).toFixed(6)
+    })
+    bounds.push([container.latitude, container.longitude])
+  })
+  if (bounds.length) map.fitBounds(bounds, { padding: [32, 32], maxZoom: 15 })
+  map.on('click', event => {
+    const form = document.querySelector('#container-form')
+    if (!form) return
+    form.elements.latitude.value = event.latlng.lat.toFixed(6)
+    form.elements.longitude.value = event.latlng.lng.toFixed(6)
+  })
+  window.wastewiseMap = map
+  setTimeout(() => map.invalidateSize(), 180)
+}
+
 function getViewMarkup(view, data) {
   const { stats, containers = [], zones, routes, alerts, kpis, fleet = fleetData, citizens = citizenData, reports = reportData } = data
   const sectionTopbar = `<header class="topbar product-topbar"><label class="global-search"><span>⌕</span><input placeholder="Buscar zonas, rutas o contenedores..." aria-label="Buscar en operaciones" /></label><div class="topbar-actions"><button class="icon-btn" aria-label="Ver notificaciones">♧<i></i></button><span class="topbar-divider"></span><div class="profile-mini"><span class="user-avatar">${getInitials(getSession().name)}</span><span><strong>${getSession().name}</strong><small>${getSession().role}</small></span><b>⌄</b></div></div></header>`
@@ -234,16 +315,19 @@ function getViewMarkup(view, data) {
 
   if (view === 'containers') {
     return `
-      ${pageIntro('Contenedores · Container Service :8101', 'Contenedores', 'Monitorea el estado de los contenedores en la ciudad, realiza mantenimientos y gestiona incidencias.', '<button class="primary-btn" id="focus-container-form" type="button">＋ Registrar contenedor</button>')}
+      ${pageIntro('Contenedores · Container Service :8101', 'Contenedores en Montería', 'Ubica cada contenedor sobre el mapa de Montería, Córdoba. Haz clic en el mapa para marcar uno nuevo.', '<button class="primary-btn" id="focus-container-form" type="button">＋ Registrar contenedor</button>')}
       <section class="stats-grid service-stats"><article class="stat-card"><span>Contenedores totales</span><strong>${containers.length}</strong><em class="positive-text">● Inventario</em></article><article class="stat-card"><span>Disponibles</span><strong>${containers.filter(container => container.status !== 'critical').length}</strong><em class="positive-text">● Operativos</em></article><article class="stat-card"><span>En mantenimiento</span><strong>1</strong><em class="neutral-text">● Programados</em></article><article class="stat-card"><span>Fuera de servicio</span><strong>${containers.filter(container => container.status === 'critical').length}</strong><em class="negative-text">● Atención</em></article></section>
+      <section class="panel city-map-panel"><div class="panel-header"><h3>Mapa de Montería</h3><span class="live-pill"><i></i> Córdoba, Colombia</span></div><div id="containers-map" class="city-map" role="region" aria-label="Mapa de contenedores en Montería"></div><p class="form-hint">Los puntos verdes están operativos y los rojos requieren atención. Un clic en el mapa copia la latitud y la longitud al formulario.</p></section>
       <form class="container-form panel" id="container-form">
         <input type="hidden" name="id" />
         <input name="code" placeholder="Código (ej. C-400)" required />
-        <input name="zone" placeholder="Zona" required />
+        <input name="zone" placeholder="Zona (Centro, Norte, Sur, Este, Oeste)" required />
         <input name="fill_level" type="number" min="0" max="100" placeholder="Llenado %" required />
         <select name="status">
           <option value="normal">Normal</option>
           <option value="critical">Crítico</option>
+        <input name="latitude" type="number" step="any" placeholder="Latitud" />
+        <input name="longitude" type="number" step="any" placeholder="Longitud" />
         </select>
         <button class="primary-btn" type="submit">Guardar</button>
         <button class="secondary-btn" type="button" id="cancel-container-edit">Limpiar</button>
@@ -783,11 +867,14 @@ async function renderDashboard(selectedView = 'dashboard') {
       app.querySelectorAll('.edit-container').forEach(button => {
         button.addEventListener('click', () => {
           const container = JSON.parse(button.dataset.container)
+          const located = locateContainer(container)
           form.elements.id.value = container.id
           form.elements.code.value = container.code
           form.elements.zone.value = container.zone
           form.elements.fill_level.value = container.fill_level
-          form.elements.status.value = container.status
+          form.elements.status.value = container.status === 'critical' ? 'critical' : 'normal'
+          form.elements.latitude.value = Number(located.latitude).toFixed(6)
+          form.elements.longitude.value = Number(located.longitude).toFixed(6)
           form.elements.code.focus()
         })
       })
@@ -802,15 +889,35 @@ async function renderDashboard(selectedView = 'dashboard') {
         event.preventDefault()
         const formData = new FormData(form)
         const id = formData.get('id')
+        const draft = locateContainer({
+          code: formData.get('code'),
+          zone: formData.get('zone'),
+          latitude: formData.get('latitude'),
+          longitude: formData.get('longitude'),
+        })
         const payload = {
           code: formData.get('code'),
           zone: formData.get('zone'),
           fill_level: Number(formData.get('fill_level')),
           status: formData.get('status'),
+          latitude: draft.latitude,
+          longitude: draft.longitude,
         }
         if (id) await updateContainer(id, payload)
         else await createContainer(payload)
         renderDashboard('containers')
+      })
+      mountContainerMap(data.containers || [])
+      ;(data.containers || []).filter(container => container.id && !isInMonteria(Number(container.latitude), Number(container.longitude))).forEach(container => {
+        const located = locateContainer(container)
+        updateContainer(container.id, {
+          code: container.code,
+          zone: container.zone,
+          fill_level: Number(container.fill_level) || 0,
+          status: container.status || 'normal',
+          latitude: located.latitude,
+          longitude: located.longitude,
+        }).catch(() => {})
       })
     }
   } catch (error) {

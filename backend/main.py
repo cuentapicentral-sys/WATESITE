@@ -96,12 +96,12 @@ def health_check():
 def dashboard():
     containers = safe_supabase_query(
         "containers",
-        "id,code,zone,fill_level,status",
+        "id,code,zone,fill_level,status,latitude,longitude",
         [
-            {"id": 1, "code": "C-240", "zone": "Centro", "fill_level": 92, "status": "critical"},
-            {"id": 2, "code": "C-155", "zone": "Norte", "fill_level": 64, "status": "normal"},
-            {"id": 3, "code": "C-311", "zone": "Sur", "fill_level": 88, "status": "critical"},
-            {"id": 4, "code": "C-178", "zone": "Este", "fill_level": 54, "status": "normal"},
+            {"id": 1, "code": "C-240", "zone": "Centro", "fill_level": 92, "status": "critical", "latitude": 8.7526, "longitude": -75.8812},
+            {"id": 2, "code": "C-155", "zone": "Norte", "fill_level": 64, "status": "normal", "latitude": 8.7784, "longitude": -75.8608},
+            {"id": 3, "code": "C-311", "zone": "Sur", "fill_level": 88, "status": "critical", "latitude": 8.7242, "longitude": -75.8874},
+            {"id": 4, "code": "C-178", "zone": "Este", "fill_level": 54, "status": "normal", "latitude": 8.7504, "longitude": -75.8518},
         ],
     )
     routes_data = safe_supabase_query(

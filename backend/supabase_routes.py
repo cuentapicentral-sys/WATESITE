@@ -10,6 +10,8 @@ router = APIRouter(prefix="/api", tags=["supabase"])
 class ContainerPayload(BaseModel):
     code: str = Field(min_length=1, max_length=40)
     zone: str = Field(min_length=1, max_length=80)
+    latitude: float | None = None
+    longitude: float | None = None
     fill_level: int = Field(default=0, ge=0, le=100)
     status: str = Field(default="normal", min_length=1, max_length=30)
 

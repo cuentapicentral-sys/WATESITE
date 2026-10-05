@@ -1593,6 +1593,25 @@ button {
   text-align: right;
 }
 
+.city-map-panel { margin-bottom: 16px; }
+.city-map {
+  height: 460px;
+  overflow: hidden;
+  border-radius: 16px;
+  background: #e7f0ed;
+}
+.bin-marker span {
+  display: grid;
+  width: 30px;
+  height: 30px;
+  place-items: center;
+  border: 2px solid #fff;
+  border-radius: 50%;
+  color: #fff;
+  font-size: 14px;
+  box-shadow: 0 6px 16px rgba(7, 40, 28, 0.28);
+}
+
 @media (max-width: 720px) {
   .service-stats { grid-template-columns: repeat(2, 1fr); }
   .sensor-layout { grid-template-columns: 1fr; }
