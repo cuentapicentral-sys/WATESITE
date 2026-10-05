@@ -4,6 +4,7 @@ from pydantic import BaseModel, Field
 
 from services.database import supabase
 from services.events import publish_event
+from services.sensors.cycle import apply_sensor_cycle
 
 app = FastAPI(title="WasteWise Sensor Ingestion Service", version="1.0.0")
 app.add_middleware(
@@ -63,6 +64,14 @@ def ingest_reading(payload: SensorReading):
         raise
     except Exception as error:
         raise HTTPException(status_code=400, detail="No se pudo procesar la lectura del sensor") from error
+
+
+@app.post("/cycle")
+def run_fill_cycle():
+    try:
+        return apply_sensor_cycle(supabase)
+    except Exception as error:
+        raise HTTPException(status_code=400, detail="No se pudo actualizar el ciclo de sensores") from error
 
 
 @app.get("/readings/container/{container_id}")

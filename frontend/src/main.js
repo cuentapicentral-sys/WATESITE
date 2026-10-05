@@ -1,5 +1,5 @@
 import './style.css'
-import { createCitizen, createContainer, deleteContainer, fetchCitizens, fetchDashboardData, fetchFleetVehicles, fetchIncidents, fetchNotifications, fetchRewards, fetchServiceData, ingestSensorReading, optimizeRoute, publishNotification, redeemReward, registerQrScan, registerVehicle, reportIncident, updateContainer, updateIncidentStatus } from './api.js'
+import { createCitizen, createContainer, deleteContainer, fetchCitizens, fetchDashboardData, fetchFleetVehicles, fetchIncidents, fetchNotifications, fetchRewards, fetchServiceData, ingestSensorReading, optimizeRoute, publishNotification, redeemReward, registerQrScan, registerVehicle, reportIncident, syncSensorCycle, updateContainer, updateIncidentStatus } from './api.js'
 import { getSession, loginUser, logoutUser, registerUser } from './auth.js'
 
 const app = document.querySelector('#app')
@@ -164,16 +164,57 @@ function readDemoUser() {
   return JSON.parse(localStorage.getItem('wastewise.users') || '[]').some(user => user.email === 'demo@wastewise.local')
 }
 
+const SENSOR_TICK_SECONDS = 300
+let sensorCycleTimer = null
+
+function clearSensorCycleTimer() {
+  if (sensorCycleTimer) {
+    clearInterval(sensorCycleTimer)
+    sensorCycleTimer = null
+  }
+}
+
+function fillTone(level) {
+  if (level >= 90) return 'red'
+  if (level >= 75) return 'amber'
+  if (level >= 40) return 'light-green'
+  return 'green'
+}
+
+function sensorPhaseLabel(container) {
+  if (container.phase === 'vaciado') return 'Recién vaciado'
+  if (Number(container.fill_level) >= 90) return 'Listo para vaciar'
+  return 'Llenándose'
+}
+
+function sensorContainersMarkup(containers) {
+  if (!containers.length) return '<p class="form-hint">No hay contenedores con sensor.</p>'
+  return containers.map(container => {
+    const level = Number(container.fill_level) || 0
+    const tone = fillTone(level)
+    return `<article class="sensor-fill-row"><div class="sensor-fill-meta"><strong>${container.code}</strong><span>${container.zone}</span><em class="${tone}">${sensorPhaseLabel(container)}</em></div><div class="sensor-fill-track" aria-hidden="true"><span class="${tone}" style="width:${level}%"></span></div><b>${level}%</b></article>`
+  }).join('')
+}
+
+function countFillBand(containers, min, max) {
+  return containers.filter(container => {
+    const level = Number(container.fill_level) || 0
+    return level >= min && level <= max
+  }).length
+}
+
 function getViewMarkup(view, data) {
   const { stats, containers = [], zones, routes, alerts, kpis, fleet = fleetData, citizens = citizenData, reports = reportData } = data
   const sectionTopbar = `<header class="topbar product-topbar"><label class="global-search"><span>⌕</span><input placeholder="Buscar zonas, rutas o contenedores..." aria-label="Buscar en operaciones" /></label><div class="topbar-actions"><button class="icon-btn" aria-label="Ver notificaciones">♧<i></i></button><span class="topbar-divider"></span><div class="profile-mini"><span class="user-avatar">${getInitials(getSession().name)}</span><span><strong>${getSession().name}</strong><small>${getSession().role}</small></span><b>⌄</b></div></div></header>`
   const pageIntro = (eyebrow, title, subtitle, action = '') => `${sectionTopbar}<section class="section-header"><div><p class="eyebrow">${eyebrow}</p><h1>${title}</h1><p class="section-subtitle">${subtitle}</p></div>${action}</section>`
 
   if (view === 'sensors') return `
-    ${pageIntro('Sensores IoT · Sensor Ingestion Service :8105', 'Monitoreo en tiempo real', 'Supervisa el nivel de llenado, estado y ubicación de los contenedores inteligentes.', '<span class="live-pill"><i></i> Conectados</span>')}
-    <section class="stats-grid service-stats"><article class="stat-card"><span>Sensores totales</span><strong>${containers.length * 25 || 128}</strong><em class="positive-text">● Activos</em></article><article class="stat-card"><span>En línea</span><strong>${containers.length * 23 || 118}</strong><em class="positive-text">● Conectados</em></article><article class="stat-card"><span>En alerta</span><strong>${containers.filter(container => container.fill_level >= 70).length || 7}</strong><em class="neutral-text">● Revisar</em></article><article class="stat-card"><span>Sin conexión</span><strong>3</strong><em class="negative-text">● Atención</em></article></section>
-    <section class="sensor-layout"><article class="panel sensor-level"><div class="panel-header"><h3>Nivel de llenado</h3><button class="chip">Última hora</button></div><div class="sensor-donut"><strong>${Math.round(containers.reduce((sum, item) => sum + item.fill_level, 0) / Math.max(containers.length, 1))}%</strong><small>Promedio</small></div><div class="sensor-legend"><span><i class="dot green"></i>0–25% <b>48</b></span><span><i class="dot light-green"></i>26–50% <b>36</b></span><span><i class="dot amber"></i>51–75% <b>32</b></span><span><i class="dot red"></i>76–100% <b>15</b></span></div></article><form class="panel service-form" id="sensor-form"><div class="panel-header"><h3>Procesar lectura</h3><span class="live-pill"><i></i> API activa</span></div><label>Contenedor<select name="container_id" required>${containers.map(container => `<option value="${container.id}">${container.code} · ${container.zone}</option>`).join('')}</select></label><label>Nivel de llenado (%)<input name="fill_level" type="number" min="0" max="100" value="92" required /></label><button class="primary-btn" type="submit">Procesar lectura</button><p class="form-hint">Con 90% o más se genera automáticamente una alerta crítica.</p></form></section>
-    <section class="panel sensor-events"><div class="panel-header"><h3>Últimos eventos</h3><button class="chip">Ver todos</button></div><div class="event-grid"><span>Hora</span><span>Contenedor</span><span>Evento</span>${containers.slice(0, 5).map((container, index) => `<time>0${8 - Math.min(index, 3)}:${42 - index * 5}</time><strong>${container.code}</strong><span><i class="dot ${container.fill_level >= 80 ? 'red' : 'green'}"></i>${container.fill_level >= 80 ? 'Llenado crítico' : 'Lectura ${container.fill_level}%'}</span>`).join('')}</div></section>`
+    ${pageIntro('Sensores IoT · Sensor Ingestion Service :8105', 'Monitoreo en tiempo real', 'Los contenedores se llenan en ciclo y el sensor guarda una lectura nueva cada 5 minutos. Al llegar al tope, se vacían y vuelven a empezar.', '<span class="live-pill"><i></i> Ciclo cada 5 min</span>')}
+    <section class="sensor-cycle-banner"><span>Próxima actualización</span><strong id="sensor-next-tick">5:00</strong><small>Cada contenedor sube su llenado y, cuando está lleno, la siguiente lectura lo deja vacío.</small></section>
+    <section class="stats-grid service-stats"><article class="stat-card"><span>Sensores activos</span><strong>${containers.length}</strong><em class="positive-text">● En ciclo</em></article><article class="stat-card"><span>Llenándose</span><strong>${containers.filter(container => container.phase !== 'vaciado' && container.fill_level < 90).length}</strong><em class="positive-text">● Subiendo</em></article><article class="stat-card"><span>En alerta</span><strong>${containers.filter(container => container.fill_level >= 75).length}</strong><em class="neutral-text">● Revisar</em></article><article class="stat-card"><span>Recién vaciados</span><strong>${containers.filter(container => container.phase === 'vaciado').length}</strong><em class="positive-text">● Recolectados</em></article></section>
+    <section class="sensor-layout"><article class="panel sensor-level"><div class="panel-header"><h3>Nivel de llenado</h3><button class="chip">Ciclo de 5 min</button></div><div class="sensor-donut"><strong>${Math.round(containers.reduce((sum, item) => sum + Number(item.fill_level || 0), 0) / Math.max(containers.length, 1))}%</strong><small>Promedio</small></div><div class="sensor-legend"><span><i class="dot green"></i>0–25% <b>${countFillBand(containers, 0, 25)}</b></span><span><i class="dot light-green"></i>26–50% <b>${countFillBand(containers, 26, 50)}</b></span><span><i class="dot amber"></i>51–75% <b>${countFillBand(containers, 51, 75)}</b></span><span><i class="dot red"></i>76–100% <b>${countFillBand(containers, 76, 100)}</b></span></div></article><form class="panel service-form" id="sensor-form"><div class="panel-header"><h3>Procesar lectura</h3><span class="live-pill"><i></i> API activa</span></div><label>Contenedor<select name="container_id" required>${containers.map(container => `<option value="${container.id}">${container.code} · ${container.zone}</option>`).join('')}</select></label><label>Nivel de llenado (%)<input name="fill_level" type="number" min="0" max="100" value="92" required /></label><button class="primary-btn" type="submit">Procesar lectura</button><p class="form-hint">Puedes forzar una lectura. El ciclo automático la reemplaza en la siguiente actualización de 5 minutos.</p></form></section>
+    <section class="panel sensor-fill-panel"><div class="panel-header"><h3>Llenado por contenedor</h3><span class="live-pill"><i></i> En vivo</span></div><div class="sensor-fill-list">${sensorContainersMarkup(containers)}</div></section>
+    <section class="panel sensor-events"><div class="panel-header"><h3>Últimos eventos</h3><button class="chip">Ciclo actual</button></div><div class="event-grid"><span>Hora</span><span>Contenedor</span><span>Evento</span>${containers.slice(0, 6).map(container => `<time>ahora</time><strong>${container.code}</strong><span><i class="dot ${fillTone(Number(container.fill_level) || 0)}"></i>${container.phase === 'vaciado' ? 'Vaciado por recolección' : 'Lectura ' + container.fill_level + '% · llenándose'}</span>`).join('')}</div></section>`
 
   if (view === 'reporting') return `
     ${pageIntro('Reportes ciudadanos · Citizen Reporting Service :8106', 'Incidencias ciudadanas', 'Registra, asigna y resuelve problemas de la vía pública con seguimiento operativo.')}
@@ -340,9 +381,22 @@ async function renderDashboard(selectedView = 'dashboard') {
     renderAuth()
     return
   }
+  clearSensorCycleTimer()
 
   try {
+    let sensorCycle = null
+    if (selectedView === 'sensors') {
+      try {
+        sensorCycle = await syncSensorCycle()
+      } catch (error) {
+        showToast(error.message, 'error')
+      }
+    }
     const data = await fetchDashboardData()
+    if (sensorCycle?.containers?.length) {
+      const cycleById = new Map(sensorCycle.containers.map(container => [String(container.id), container]))
+      data.containers = data.containers.map(container => ({ ...container, ...(cycleById.get(String(container.id)) || {}) }))
+    }
 
     app.innerHTML = `
       <div class="dashboard-shell">
@@ -455,6 +509,7 @@ async function renderDashboard(selectedView = 'dashboard') {
 
     app.querySelectorAll('.logout-btn').forEach(button => {
       button.addEventListener('click', () => {
+        clearSensorCycleTimer()
         logoutUser()
         renderAuth()
       })
@@ -492,8 +547,26 @@ async function renderDashboard(selectedView = 'dashboard') {
       try {
         const result = await ingestSensorReading({ container_id: values.container_id, fill_level: Number(values.fill_level) })
         showToast(result.published ? 'Lectura recibida: alerta crítica publicada' : 'Lectura del sensor procesada')
+        renderDashboard('sensors')
       } catch (error) { showToast(error.message, 'error') }
     })
+
+    if (selectedView === 'sensors') {
+      const nextLabel = app.querySelector('#sensor-next-tick')
+      let lastEpoch = Math.floor(Date.now() / 1000 / SENSOR_TICK_SECONDS)
+      const paintCountdown = () => {
+        const nowSeconds = Math.floor(Date.now() / 1000)
+        const remain = SENSOR_TICK_SECONDS - (nowSeconds % SENSOR_TICK_SECONDS)
+        if (nextLabel) nextLabel.textContent = `${Math.floor(remain / 60)}:${String(remain % 60).padStart(2, '0')}`
+        const epoch = Math.floor(nowSeconds / SENSOR_TICK_SECONDS)
+        if (epoch !== lastEpoch) {
+          lastEpoch = epoch
+          renderDashboard('sensors')
+        }
+      }
+      paintCountdown()
+      sensorCycleTimer = setInterval(paintCountdown, 1000)
+    }
 
     app.querySelector('#route-optimizer')?.addEventListener('submit', async event => {
       event.preventDefault()

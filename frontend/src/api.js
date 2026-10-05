@@ -57,6 +57,10 @@ export function ingestSensorReading(payload) {
   return serviceRequest('sensors', '/readings', { method: 'POST', body: JSON.stringify(payload) });
 }
 
+export function syncSensorCycle() {
+  return serviceRequest('sensors', '/cycle', { method: 'POST' });
+}
+
 export function reportIncident(payload) {
   return serviceRequest('reporting', '/incidents', { method: 'POST', body: JSON.stringify(payload) });
 }

@@ -1,9 +1,37 @@
+import asyncio
+from contextlib import asynccontextmanager
+
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from backend.supabase_routes import router as supabase_router
 from backend.supabase_client import supabase
 
-app = FastAPI(title="WasteWise API", version="1.0.0")
+
+@asynccontextmanager
+async def lifespan(_app):
+    stop = asyncio.Event()
+
+    async def sensor_cycle_loop():
+        while not stop.is_set():
+            try:
+                from services.database import supabase as sensor_db
+                from services.sensors.cycle import apply_sensor_cycle
+
+                await asyncio.to_thread(apply_sensor_cycle, sensor_db)
+            except Exception as exc:
+                print(f"Ciclo de sensores omitido: {exc}")
+            try:
+                await asyncio.wait_for(stop.wait(), timeout=300)
+            except TimeoutError:
+                continue
+
+    task = asyncio.create_task(sensor_cycle_loop())
+    yield
+    stop.set()
+    await asyncio.gather(task, return_exceptions=True)
+
+
+app = FastAPI(title="WasteWise API", version="1.0.0", lifespan=lifespan)
 app.include_router(supabase_router)
 
 app.add_middleware(

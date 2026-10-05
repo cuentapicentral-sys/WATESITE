@@ -1514,6 +1514,85 @@ button {
   border-radius: 10px;
 }
 
+.sensor-cycle-banner {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 8px 14px;
+  margin-bottom: 16px;
+  padding: 14px 16px;
+  border-radius: 16px;
+  background: #f3faf6;
+  color: #245743;
+}
+
+.sensor-cycle-banner strong {
+  font-size: 1.35rem;
+  letter-spacing: -0.04em;
+}
+
+.sensor-cycle-banner small {
+  flex-basis: 100%;
+  color: #5d7468;
+}
+
+.sensor-fill-list {
+  display: grid;
+  gap: 14px;
+}
+
+.sensor-fill-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 52px;
+  gap: 6px 12px;
+  align-items: center;
+}
+
+.sensor-fill-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px 10px;
+  align-items: baseline;
+  min-width: 0;
+}
+
+.sensor-fill-meta span,
+.sensor-fill-meta em {
+  color: #6b7f76;
+  font-size: .72rem;
+  font-style: normal;
+}
+
+.sensor-fill-meta em.red { color: #c0393e; }
+.sensor-fill-meta em.amber { color: #b8860b; }
+.sensor-fill-meta em.green,
+.sensor-fill-meta em.light-green { color: #1f8f5f; }
+
+.sensor-fill-track {
+  grid-column: 1;
+  height: 10px;
+  overflow: hidden;
+  border-radius: 99px;
+  background: #e7f0ed;
+}
+
+.sensor-fill-track span {
+  display: block;
+  height: 100%;
+  border-radius: inherit;
+  background: #2fa16d;
+}
+
+.sensor-fill-track span.amber { background: #d99c22; }
+.sensor-fill-track span.red { background: #dc4a4e; }
+.sensor-fill-track span.light-green { background: #7dcea0; }
+
+.sensor-fill-row b {
+  grid-row: 1 / span 2;
+  grid-column: 2;
+  text-align: right;
+}
+
 @media (max-width: 720px) {
   .service-stats { grid-template-columns: repeat(2, 1fr); }
   .sensor-layout { grid-template-columns: 1fr; }
