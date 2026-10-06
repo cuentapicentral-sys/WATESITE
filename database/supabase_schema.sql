@@ -93,6 +93,16 @@ create table if not exists public.drivers (
   created_at timestamptz default now()
 );
 
+create table if not exists public.recycling_donations (
+  id uuid primary key default gen_random_uuid(),
+  citizen_id uuid references public.citizens(id) on delete cascade,
+  qr_code text not null,
+  place text not null,
+  photo_url text,
+  points_awarded integer not null default 5,
+  created_at timestamptz default now()
+);
+
 create table if not exists public.citizen_incidents (
   id uuid primary key default gen_random_uuid(),
   citizen_id uuid references public.citizens(id) on delete set null,

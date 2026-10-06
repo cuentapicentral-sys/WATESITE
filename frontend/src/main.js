@@ -1,6 +1,7 @@
 import './style.css'
 import { createCitizen, createContainer, deleteContainer, fetchCitizens, fetchDashboardData, fetchFleetVehicles, fetchIncidents, fetchNotifications, fetchRewards, fetchServiceData, ingestSensorReading, optimizeRoute, publishNotification, redeemReward, registerQrScan, registerVehicle, reportIncident, syncSensorCycle, updateContainer, updateIncidentStatus } from './api.js'
 import { getSession, loginUser, logoutUser, registerUser } from './auth.js'
+import { donationCodeFromUrl, incentivesBody, mountIncentives, renderPublicDonation } from './incentives.js'
 
 const app = document.querySelector('#app')
 const navOrder = ['dashboard', 'containers', 'sensors', 'routes', 'fleet', 'citizens', 'reporting', 'notifications', 'analytics']
@@ -181,8 +182,10 @@ function clearMaps() {
   }
   try { window.wastewiseMap?.remove() } catch { /* el mapa ya no está en pantalla */ }
   try { window.wastewiseFleetMap?.remove() } catch { /* el mapa ya no está en pantalla */ }
+  try { window.wastewiseIncentiveMap?.remove() } catch { /* el mapa ya no está en pantalla */ }
   window.wastewiseMap = null
   window.wastewiseFleetMap = null
+  window.wastewiseIncentiveMap = null
 }
 
 function fillTone(level) {
@@ -514,7 +517,7 @@ function getViewMarkup(view, data) {
 
   if (view === 'citizens') {
     return `
-      ${pageIntro('Solicitudes ciudadanas · Citizen Rewards Service :8104', 'Participación ambiental', 'Convierte hábitos sostenibles en puntos, recompensas y participación medible.')}
+      ${pageIntro('Incentivos ciudadanos · Citizen Rewards Service :8104', 'Puntos por reciclar', 'Cada ubicación tiene un código QR. La persona se registra y cada foto de donación suma 5 puntos.', '<span class="live-pill"><i></i> 5 puntos por foto</span>')}
       <section class="cards-grid">
         ${citizens.map(item => `
           <article class="info-card">
@@ -523,12 +526,7 @@ function getViewMarkup(view, data) {
           </article>
         `).join('')}
       </section>
-      <form class="panel service-form" id="citizen-create-form">
-        <h3>Registrar ciudadano</h3>
-        <label>Nombre<input name="name" placeholder="Martín Ruiz" required /></label>
-        <button class="primary-btn" type="submit">Crear ciudadano</button>
-      </form>
-      <form class="panel qr-form" id="qr-form"><h3>Registrar escaneo QR</h3><p>Asocia el escaneo de un punto limpio a un ciudadano y suma puntos.</p><div class="form-grid"><input name="citizen_id" placeholder="ID del ciudadano" required /><input name="qr_code" placeholder="QR-PUNTO-CENTRO" required /><input name="points" type="number" min="1" max="500" value="50" required /></div><button class="primary-btn" type="submit">Validar QR y sumar puntos</button></form>
+      ${incentivesBody()}
       <div class="panel" id="citizens-panel"><h3>Ciudadanos registrados</h3><div id="citizens-list">Cargando ciudadanos…</div></div>
       <div class="panel" id="rewards-panel"><h3>Recompensas disponibles</h3><p class="form-hint">Canjea una recompensa usando el ID del ciudadano.</p><div id="rewards-list">Cargando recompensas…</div></div>
     `
@@ -917,6 +915,15 @@ async function renderDashboard(selectedView = 'dashboard') {
       }
     }
 
+    if (selectedView === 'citizens') {
+      mountIncentives()
+      app.querySelector('#donation-form')?.addEventListener('donation-saved', event => {
+        showToast(`Foto recibida: +${event.detail.earned_points} puntos. Total ${event.detail.total_points}`)
+        renderDashboard('citizens')
+      })
+      app.querySelector('#donation-form')?.addEventListener('donation-error', event => showToast(event.detail, 'error'))
+    }
+
     const citizensList = app.querySelector('#citizens-list')
     if (citizensList) {
       try {
@@ -1049,4 +1056,9 @@ async function renderDashboard(selectedView = 'dashboard') {
   }
 }
 
-renderDashboard()
+if (donationCodeFromUrl()) {
+  renderPublicDonation(donationCodeFromUrl(), message => showToast(message))
+  document.querySelector('#donation-form')?.addEventListener('donation-error', event => showToast(event.detail, 'error'))
+} else {
+  renderDashboard()
+}

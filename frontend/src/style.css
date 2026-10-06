@@ -1640,6 +1640,14 @@ button {
   background: #f3faf6;
 }
 .fleet-live-list span, .fleet-live-list small { color: #5d7468; font-size: .72rem; }
+.qr-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 14px; }
+.qr-card, .public-donation { display: grid; gap: 8px; padding: 14px; border: 1px solid var(--border); border-radius: 16px; background: var(--panel); }
+.qr-card img { width: 148px; height: 148px; border-radius: 12px; background: #fff; }
+.qr-card strong, .public-donation h1 { font-family: 'Space Grotesk', sans-serif; }
+.qr-card span, .qr-card small { color: var(--muted); font-size: .75rem; }
+.public-donation { max-width: 980px; margin: 24px auto; padding: 20px; }
+.public-donation-head { display: flex; gap: 16px; align-items: center; }
+.donation-form { align-content: start; }
 
 @media (max-width: 720px) {
   .service-stats { grid-template-columns: repeat(2, 1fr); }

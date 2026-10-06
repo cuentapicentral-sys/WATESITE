@@ -109,6 +109,10 @@ export function registerQrScan(citizenId, payload) {
   return serviceRequest('citizens', `/citizens/${citizenId}/scans`, { method: 'POST', body: JSON.stringify(payload) });
 }
 
+export function submitRecyclingPhoto(payload) {
+  return serviceRequest('citizens', '/donations', { method: 'POST', body: JSON.stringify(payload) });
+}
+
 export async function fetchDashboardData() {
   const response = await fetch(`${API_BASE_URL}/dashboard`);
   if (!response.ok) {

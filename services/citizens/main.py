@@ -2,6 +2,17 @@ from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
 
+from services.citizens.points import (
+    PHOTO_POINTS,
+    RECYCLING_POINTS,
+    find_recycling_point,
+    normalize_phone,
+    phone_from_name,
+    photo_is_valid,
+    points_after_photo,
+    public_name,
+    tagged_name,
+)
 from services.database import supabase
 from services.events import publish_event
 
@@ -17,41 +28,87 @@ app.add_middleware(
 
 class CitizenPayload(BaseModel):
     name: str = Field(min_length=2, max_length=120)
+    phone: str | None = Field(default=None, max_length=20)
 
 
 class ScanPayload(BaseModel):
     qr_code: str = Field(min_length=3, max_length=120)
-    points: int = Field(default=10, ge=1, le=500)
+    points: int = Field(default=PHOTO_POINTS, ge=1, le=500)
 
 
-@app.get("/health")
-def health():
-    return {"status": "ok", "service": "citizen-service"}
+class DonationPayload(BaseModel):
+    citizen_id: str
+    qr_code: str = Field(min_length=3, max_length=120)
+    photo_url: str
+
+
+def present_citizen(citizen: dict) -> dict:
+    return {**citizen, "name": public_name(citizen["name"]), "phone": phone_from_name(citizen["name"])}
+
+
+@app.get("/recycling-points")
+def list_recycling_points():
+    return {"data": RECYCLING_POINTS, "points_per_photo": PHOTO_POINTS}
 
 
 @app.get("/citizens")
 def list_citizens():
     try:
         response = supabase.table("citizens").select("*").execute()
-        return {"data": response.data}
+        return {"data": [present_citizen(citizen) for citizen in response.data]}
     except Exception as error:
         raise HTTPException(status_code=502, detail="No se pudieron consultar los ciudadanos") from error
 
 
 @app.post("/citizens", status_code=201)
 def create_citizen(payload: CitizenPayload):
-    response = supabase.table("citizens").insert(payload.model_dump()).execute()
+    stored_name = tagged_name(payload.name, payload.phone)
+    phone = normalize_phone(payload.phone)
+    if phone:
+        existing = supabase.table("citizens").select("*").ilike("name", f"%#{phone}").execute().data
+        if existing:
+            return {"data": present_citizen(existing[0]), "existing": True}
+    response = supabase.table("citizens").insert({"name": stored_name}).execute()
     publish_event("citizen.registered", response.data[0], "citizen.registered")
-    return {"data": response.data[0]}
+    return {"data": present_citizen(response.data[0])}
+
+
+def award_photo_points(citizen_id: str, qr_code: str, photo_url: str | None = None):
+    point = find_recycling_point(qr_code)
+    if not point:
+        raise HTTPException(status_code=404, detail="Ese código QR no corresponde a un punto de reciclaje")
+    citizen = supabase.table("citizens").select("*").eq("id", citizen_id).single().execute().data
+    if not citizen:
+        raise HTTPException(status_code=404, detail="Regístrate antes de enviar la foto")
+    updated_points = points_after_photo(citizen["points"])
+    response = supabase.table("citizens").update({"points": updated_points}).eq("id", citizen_id).execute()
+    if photo_url:
+        try:
+            supabase.table("citizen_incidents").insert({
+                "citizen_id": citizen_id,
+                "category": "Donación de reciclaje",
+                "description": f"Foto en {point['place']} · {point['code']} · +{PHOTO_POINTS} puntos",
+                "photo_url": photo_url,
+                "latitude": point["latitude"],
+                "longitude": point["longitude"],
+                "status": "resolved",
+            }).execute()
+        except Exception:
+            pass
+    publish_event("recycling.verified", {"citizen_id": citizen_id, "qr_code": point["code"], "earned_points": PHOTO_POINTS, "total_points": updated_points}, "recycling.verified")
+    return {"data": present_citizen(response.data[0]), "qr_code": point["code"], "place": point["place"], "earned_points": PHOTO_POINTS, "total_points": updated_points}
+
+
+@app.post("/donations")
+def submit_donation(payload: DonationPayload):
+    if not photo_is_valid(payload.photo_url):
+        raise HTTPException(status_code=422, detail="Adjunta una foto de la donación")
+    return award_photo_points(payload.citizen_id, payload.qr_code, payload.photo_url)
 
 
 @app.post("/citizens/{citizen_id}/scans")
 def register_qr_scan(citizen_id: str, payload: ScanPayload):
-    citizen = supabase.table("citizens").select("points").eq("id", citizen_id).single().execute().data
-    updated_points = citizen["points"] + payload.points
-    response = supabase.table("citizens").update({"points": updated_points}).eq("id", citizen_id).execute()
-    publish_event("recycling.verified", {"citizen_id": citizen_id, "qr_code": payload.qr_code, "earned_points": payload.points, "total_points": updated_points}, "recycling.verified")
-    return {"data": response.data[0], "qr_code": payload.qr_code, "earned_points": payload.points}
+    return award_photo_points(citizen_id, payload.qr_code)
 
 
 @app.get("/rewards")
