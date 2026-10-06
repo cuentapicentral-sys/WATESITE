@@ -174,6 +174,17 @@ function clearSensorCycleTimer() {
   }
 }
 
+function clearMaps() {
+  if (window.fleetMotionFrame) {
+    cancelAnimationFrame(window.fleetMotionFrame)
+    window.fleetMotionFrame = null
+  }
+  try { window.wastewiseMap?.remove() } catch { /* el mapa ya no está en pantalla */ }
+  try { window.wastewiseFleetMap?.remove() } catch { /* el mapa ya no está en pantalla */ }
+  window.wastewiseMap = null
+  window.wastewiseFleetMap = null
+}
+
 function fillTone(level) {
   if (level >= 90) return 'red'
   if (level >= 75) return 'amber'
@@ -284,6 +295,109 @@ function mountContainerMap(containers) {
   setTimeout(() => map.invalidateSize(), 180)
 }
 
+const FLEET_ROUTES = [
+  [
+    { place: 'Alcaldía', lat: 8.7472, lng: -75.8836 },
+    { place: 'Ronda del Sinú', lat: 8.7526, lng: -75.8812 },
+    { place: 'Mercado del Centro', lat: 8.7558, lng: -75.8864 },
+    { place: 'Parque Simón Bolívar', lat: 8.7489, lng: -75.8818 },
+  ],
+  [
+    { place: 'El Recreo', lat: 8.7688, lng: -75.8706 },
+    { place: 'La Granja', lat: 8.7784, lng: -75.8608 },
+    { place: 'Universidad de Córdoba', lat: 8.7892, lng: -75.8586 },
+    { place: 'Terminal', lat: 8.7638, lng: -75.8672 },
+  ],
+  [
+    { place: 'Cantaclaro', lat: 8.7318, lng: -75.8742 },
+    { place: 'Villa Jiménez', lat: 8.7242, lng: -75.8874 },
+    { place: 'Rancho Grande', lat: 8.7338, lng: -75.8688 },
+    { place: 'Sur', lat: 8.7186, lng: -75.9012 },
+  ],
+  [
+    { place: 'Los Robles', lat: 8.7504, lng: -75.8518 },
+    { place: 'La Pradera', lat: 8.7446, lng: -75.8462 },
+    { place: 'Centro', lat: 8.7526, lng: -75.8812 },
+    { place: 'El Amparo', lat: 8.7416, lng: -75.9068 },
+  ],
+]
+const FLEET_DEPOT = { place: 'Patio de flota', lat: 8.7638, lng: -75.8672 }
+
+function vehicleIsMoving(state) {
+  const value = String(state || '').toLowerCase()
+  return !['revision', 'revisión', 'fuera_de_servicio', 'fuera de servicio'].includes(value)
+}
+
+function pointOnLoop(points, progress) {
+  const scaled = (((progress % 1) + 1) % 1) * points.length
+  const index = Math.floor(scaled) % points.length
+  const next = (index + 1) % points.length
+  const t = scaled - Math.floor(scaled)
+  return {
+    lat: points[index].lat + (points[next].lat - points[index].lat) * t,
+    lng: points[index].lng + (points[next].lng - points[index].lng) * t,
+    place: t < 0.18 ? points[index].place : 'En tránsito',
+  }
+}
+
+function mountFleetMap(fleet, containers) {
+  const node = document.getElementById('fleet-map')
+  if (!node || !window.L) return
+  if (window.wastewiseFleetMap) {
+    window.wastewiseFleetMap.remove()
+    window.wastewiseFleetMap = null
+  }
+  const map = window.L.map(node).setView([MONTERIA.lat, MONTERIA.lng], 13)
+  window.L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+    maxZoom: 19,
+    attribution: '&copy; OpenStreetMap · Montería, Córdoba',
+  }).addTo(map)
+  containers.map(locateContainer).forEach(container => {
+    window.L.circleMarker([container.latitude, container.longitude], {
+      radius: 5,
+      color: Number(container.fill_level) >= 75 ? '#dc4a4e' : '#7dcea0',
+      fillOpacity: 0.85,
+      weight: 1,
+    }).addTo(map).bindPopup(`${container.code} · ${container.fill_level}%`)
+  })
+  const movers = fleet.map((vehicle, index) => {
+    const moving = vehicleIsMoving(vehicle.state)
+    const route = moving ? FLEET_ROUTES[index % FLEET_ROUTES.length] : [FLEET_DEPOT, FLEET_DEPOT]
+    if (moving) {
+      window.L.polyline(route.map(point => [point.lat, point.lng]), { color: '#1f8f5f', weight: 3, opacity: 0.4 }).addTo(map)
+    }
+    const seed = [...String(vehicle.id || index)].reduce((sum, char) => sum + char.charCodeAt(0), 0)
+    const marker = window.L.marker([route[0].lat, route[0].lng], {
+      icon: window.L.divIcon({
+        className: 'truck-marker',
+        html: `<span class="${moving ? 'moving' : 'parked'}">▰</span>`,
+        iconSize: [32, 32],
+        iconAnchor: [16, 16],
+      }),
+      zIndexOffset: 500,
+    }).addTo(map)
+    return { vehicle, route, marker, moving, offset: (seed % 90) / 100 }
+  })
+  const tick = () => {
+    if (!document.getElementById('fleet-map')) return
+    const now = Date.now() / 1000
+    const rows = movers.map(item => {
+      const progress = item.moving ? (now / 140 + item.offset) % 1 : 0
+      const point = pointOnLoop(item.route, progress)
+      const nearby = item.moving ? containers.map(locateContainer).find(container => Math.hypot(container.latitude - point.lat, container.longitude - point.lng) < 0.0035) : null
+      const action = !item.moving ? 'Detenido en patio' : nearby && Number(nearby.fill_level) >= 75 ? `Vaciando ${nearby.code}` : `Recorriendo ${point.place}`
+      item.marker.bindPopup(`<strong>${item.vehicle.id}</strong><br>${item.vehicle.type}<br>${action}<br>${point.lat.toFixed(5)}, ${point.lng.toFixed(5)}`)
+      return `<article><strong>${item.vehicle.id}</strong><span>${action}</span><small>${point.lat.toFixed(5)}, ${point.lng.toFixed(5)}</small></article>`
+    })
+    const list = document.getElementById('fleet-live-list')
+    if (list) list.innerHTML = rows.join('') || '<p class="form-hint">No hay vehículos registrados.</p>'
+    window.fleetMotionFrame = requestAnimationFrame(tick)
+  }
+  window.wastewiseFleetMap = map
+  setTimeout(() => map.invalidateSize(), 180)
+  tick()
+}
+
 function getViewMarkup(view, data) {
   const { stats, containers = [], zones, routes, alerts, kpis, fleet = fleetData, citizens = citizenData, reports = reportData } = data
   const sectionTopbar = `<header class="topbar product-topbar"><label class="global-search"><span>⌕</span><input placeholder="Buscar zonas, rutas o contenedores..." aria-label="Buscar en operaciones" /></label><div class="topbar-actions"><button class="icon-btn" aria-label="Ver notificaciones">♧<i></i></button><span class="topbar-divider"></span><div class="profile-mini"><span class="user-avatar">${getInitials(getSession().name)}</span><span><strong>${getSession().name}</strong><small>${getSession().role}</small></span><b>⌄</b></div></div></header>`
@@ -372,8 +486,9 @@ function getViewMarkup(view, data) {
 
   if (view === 'fleet') {
     return `
-      ${pageIntro('Recolección de residuos · Fleet Service :8103', 'Estado de la flota', 'Controla vehículos, conductores, carga y disponibilidad de cada turno.', '<span class="live-pill"><i></i> Gestión operativa</span>')}
-      <section class="stats-grid service-stats"><article class="stat-card"><span>Vehículos totales</span><strong>${fleet.length}</strong><em class="positive-text">● Registrados</em></article><article class="stat-card"><span>En operación</span><strong>${fleet.filter(vehicle => vehicle.state !== 'Revisión').length}</strong><em class="positive-text">● Activos</em></article><article class="stat-card"><span>En ruta</span><strong>${fleet.filter(vehicle => vehicle.state === 'En ruta').length}</strong><em class="neutral-text">● En servicio</em></article><article class="stat-card"><span>En revisión</span><strong>${fleet.filter(vehicle => vehicle.state === 'Revisión').length}</strong><em class="negative-text">● Taller</em></article></section>
+      ${pageIntro('Recolección de residuos · Fleet Service :8103', 'Flota en Montería', 'Los vehículos en operación recorren la ciudad en tiempo real y vacían los contenedores llenos. Los que están en revisión permanecen en el patio.', '<span class="live-pill"><i></i> Tiempo real</span>')}
+      <section class="stats-grid service-stats"><article class="stat-card"><span>Vehículos totales</span><strong>${fleet.length}</strong><em class="positive-text">● Registrados</em></article><article class="stat-card"><span>En operación</span><strong>${fleet.filter(vehicle => vehicleIsMoving(vehicle.state)).length}</strong><em class="positive-text">● En movimiento</em></article><article class="stat-card"><span>En ruta</span><strong>${fleet.filter(vehicle => vehicleIsMoving(vehicle.state)).length}</strong><em class="neutral-text">● En servicio</em></article><article class="stat-card"><span>En revisión</span><strong>${fleet.filter(vehicle => !vehicleIsMoving(vehicle.state)).length}</strong><em class="negative-text">● Taller</em></article></section>
+      <section class="panel city-map-panel"><div class="panel-header"><h3>Mapa de la flota</h3><span class="live-pill"><i></i> Montería, Córdoba</span></div><div id="fleet-map" class="city-map" role="region" aria-label="Mapa en tiempo real de la flota en Montería"></div><div id="fleet-live-list" class="fleet-live-list"></div><p class="form-hint">Los camiones verdes se mueven por la ciudad. Los puntos son contenedores; si el camión pasa junto a uno lleno, aparece como vaciado.</p></section>
       <div class="service-banner"><strong>Seguimiento de camiones y conductores</strong><span>Actualiza carga, estado y asignación desde Fleet Service.</span></div>
       <form class="panel service-form" id="fleet-form">
         <h3>Registrar vehículo</h3>
@@ -466,6 +581,7 @@ async function renderDashboard(selectedView = 'dashboard') {
     return
   }
   clearSensorCycleTimer()
+  clearMaps()
 
   try {
     let sensorCycle = null
@@ -594,6 +710,7 @@ async function renderDashboard(selectedView = 'dashboard') {
     app.querySelectorAll('.logout-btn').forEach(button => {
       button.addEventListener('click', () => {
         clearSensorCycleTimer()
+        clearMaps()
         logoutUser()
         renderAuth()
       })
@@ -678,6 +795,8 @@ async function renderDashboard(selectedView = 'dashboard') {
         renderDashboard('fleet')
       } catch (error) { showToast(error.message, 'error') }
     })
+
+    if (selectedView === 'fleet') mountFleetMap(data.fleet || [], data.containers || [])
 
     app.querySelector('#citizen-create-form')?.addEventListener('submit', async event => {
       event.preventDefault()
