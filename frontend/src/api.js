@@ -70,6 +70,7 @@ export function trackIncident(code) {
 }
 
 export function collectContainer(containerId, payload = {}) {
+  invalidateDashboard();
   return serviceRequest('containers', `/containers/${containerId}/collect`, { method: 'POST', body: JSON.stringify(payload) });
 }
 
@@ -78,7 +79,13 @@ export function fetchIncidents() {
 }
 
 export function updateIncidentStatus(incidentId, status) {
+  invalidateDashboard();
   return serviceRequest('reporting', `/incidents/${incidentId}/status?status=${encodeURIComponent(status)}`, { method: 'PATCH' });
+}
+
+export function assignIncident(incidentId, vehicle) {
+  invalidateDashboard();
+  return serviceRequest('reporting', `/incidents/${incidentId}/assign?vehicle=${encodeURIComponent(vehicle)}`, { method: 'PATCH' });
 }
 
 export function publishNotification(payload) {
@@ -109,24 +116,61 @@ export function fetchRewards() {
   return serviceRequest('citizens', '/rewards');
 }
 
+export function fetchRewardCatalog() {
+  return serviceRequest('citizens', '/rewards/catalog');
+}
+
+export function redeemCatalogReward(payload) {
+  invalidateDashboard();
+  return serviceRequest('citizens', '/rewards/redeem', { method: 'POST', body: JSON.stringify(payload) });
+}
+
+export function fetchDayClose() {
+  return fetch(`${API_BASE_URL}/day-close`).then(async response => {
+    if (!response.ok) throw new Error('No se pudo calcular el cierre del día');
+    return response.json();
+  });
+}
+
 export function redeemReward(citizenId, rewardId) {
+  invalidateDashboard();
   return serviceRequest('citizens', `/citizens/${citizenId}/rewards/${rewardId}/redeem`, { method: 'POST' });
 }
 
+let dashboardCache = null;
+let dashboardCacheAt = 0;
+
+export function invalidateDashboard() {
+  dashboardCache = null;
+}
+
+function refreshDashboard() {
+  fetch(`${API_BASE_URL}/dashboard`).then(async response => {
+    if (!response.ok) return;
+    dashboardCache = await response.json();
+    dashboardCacheAt = Date.now();
+  }).catch(() => {});
+}
+
+export async function fetchDashboardData(force = false) {
+  if (!force && dashboardCache) {
+    if (Date.now() - dashboardCacheAt >= 25000) refreshDashboard();
+    return dashboardCache;
+  }
+  const response = await fetch(`${API_BASE_URL}/dashboard`);
+  if (!response.ok) {
+    throw new Error('No se pudo cargar la información del dashboard');
+  }
+  dashboardCache = await response.json();
+  dashboardCacheAt = Date.now();
+  return dashboardCache;
+}
 export function registerQrScan(citizenId, payload) {
   return serviceRequest('citizens', `/citizens/${citizenId}/scans`, { method: 'POST', body: JSON.stringify(payload) });
 }
 
 export function submitRecyclingPhoto(payload) {
   return serviceRequest('citizens', '/donations', { method: 'POST', body: JSON.stringify(payload) });
-}
-
-export async function fetchDashboardData() {
-  const response = await fetch(`${API_BASE_URL}/dashboard`);
-  if (!response.ok) {
-    throw new Error('No se pudo cargar la información del dashboard');
-  }
-  return response.json();
 }
 
 export async function createContainer(container) {

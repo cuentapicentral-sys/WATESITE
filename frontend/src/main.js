@@ -5,17 +5,18 @@ import { getSession, loginUser, logoutUser, registerUser } from './auth.js'
 import { fetchDrivingRoute, pointAtDistance, TRUCK_SPEED_KMH } from './dijkstra.js'
 import { STREET_ROUTES } from './street-routes.js'
 import { donationCodeFromUrl, incentivesBody, mountIncentives, renderPublicDonation } from './incentives.js'
+import { clearFieldMaps, dayCloseMarkup, driverSheetRequested, fillDayClose, incidentDeskMarkup, mountIncidentDesk, mountRewardCatalog, renderDriverSheet } from './field.js'
 
 const app = document.querySelector('#app')
-const navOrder = ['dashboard', 'containers', 'sensors', 'routes', 'fleet', 'citizens', 'reporting', 'notifications', 'analytics']
+const navOrder = ['dashboard', 'containers', 'sensors', 'routes', 'fleet', 'citizens', 'reporting', 'notifications', 'driver', 'cierre', 'analytics']
 
 const navLabels = {
   dashboard: 'Dashboard', containers: 'Contenedores', sensors: 'Sensores', routes: 'Optimizar rutas',
-  fleet: 'Flota', citizens: 'Recompensas', reporting: 'Reportes ciudadanos', notifications: 'Notificaciones', analytics: 'Analítica municipal',
+  fleet: 'Flota', citizens: 'Recompensas', reporting: 'Reportes ciudadanos', notifications: 'Notificaciones', driver: 'Hoja del conductor', cierre: 'Cierre del día', analytics: 'Analítica municipal',
 }
 
 const navIcons = {
-  dashboard: '⌂', containers: '▣', sensors: '⌁', routes: '⌖', fleet: '▱', citizens: '✦', reporting: '◌', notifications: '♧', analytics: '◫',
+  dashboard: '⌂', containers: '▣', sensors: '⌁', routes: '⌖', fleet: '▱', citizens: '✦', reporting: '◌', notifications: '♧', driver: '☰', cierre: '▤', analytics: '◫',
 }
 
 const fleetData = [
@@ -185,6 +186,7 @@ function clearSensorCycleTimer() {
 }
 
 function clearMaps() {
+  clearFieldMaps()
   if (window.fleetMotionFrame) {
     cancelAnimationFrame(window.fleetMotionFrame)
     window.fleetMotionFrame = null
@@ -494,7 +496,8 @@ function getViewMarkup(view, data) {
 
   if (view === 'reporting') return `
     ${pageIntro('Reportes ciudadanos · Citizen Reporting Service :8106', 'Incidencias ciudadanas', 'Registra, asigna y resuelve problemas de la vía pública con seguimiento operativo.')}
-    ${incidentFormMarkup()}`
+    ${incidentFormMarkup()}
+    ${incidentDeskMarkup()}`
 
   if (view === 'notifications') return `
     ${pageIntro('Notificaciones · Notification Service :8107', 'Centro de notificaciones', 'Publica alertas para los equipos municipales y consulta el feed operativo.')}
@@ -567,6 +570,12 @@ function getViewMarkup(view, data) {
     `
   }
 
+  if (view === 'driver') return `
+    ${pageIntro('Operación de campo', 'Hoja del conductor', 'Paradas de hoy, en orden, para marcarlas desde el celular.')}
+    <section class="panel"><p class="form-hint">La hoja se abre en una pantalla simple, pensada para el teléfono del conductor.</p><a class="primary-btn" href="?conductor=1">Abrir hoja de hoy</a></section>`
+  if (view === 'cierre') return `
+    ${pageIntro('Operación de campo', 'Cierre del día', 'Kilos recogidos, contenedores vaciados, solicitudes resueltas y puntos entregados.')}
+    ${dayCloseMarkup()}`
   if (view === 'fleet') {
     return `
       ${pageIntro('Recolección de residuos · Fleet Service :8103', 'Flota en Montería', 'Los vehículos en operación recorren la ciudad en tiempo real y vacían los contenedores llenos. Los que están en revisión permanecen en el patio.', '<span class="live-pill"><i></i> Tiempo real</span>')}
@@ -608,7 +617,7 @@ function getViewMarkup(view, data) {
       </section>
       ${incentivesBody()}
       <div class="panel" id="citizens-panel"><h3>Ciudadanos registrados</h3><div id="citizens-list">Cargando ciudadanos…</div></div>
-      <div class="panel" id="rewards-panel"><h3>Recompensas disponibles</h3><p class="form-hint">Canjea una recompensa usando el ID del ciudadano.</p><div id="rewards-list">Cargando recompensas…</div></div>
+      <div class="panel" id="rewards-panel"><h3>Catálogo de puntos</h3><p class="form-hint">El ciudadano canjea con su celular. El premio descuenta puntos de verdad.</p><div id="rewards-list">Cargando catálogo…</div></div>
     `
   }
 
@@ -663,20 +672,13 @@ async function renderDashboard(selectedView = 'dashboard') {
   clearMaps()
 
   try {
-    let sensorCycle = null
-    if (selectedView === 'sensors') {
-      try {
-        sensorCycle = await syncSensorCycle()
-      } catch (error) {
-        showToast(error.message, 'error')
-      }
-    }
     const data = await fetchDashboardData()
-    if (sensorCycle?.containers?.length) {
-      const cycleById = new Map(sensorCycle.containers.map(container => [String(container.id), container]))
-      data.containers = data.containers.map(container => ({ ...container, ...(cycleById.get(String(container.id)) || {}) }))
-    }
 
+    const reuseShell = Boolean(app.querySelector('.dashboard-shell'))
+    if (reuseShell) {
+      app.querySelector('.main-panel').innerHTML = getViewMarkup(selectedView, data)
+      app.querySelectorAll('.menu-item').forEach(button => button.classList.toggle('active', button.dataset.view === selectedView))
+    } else {
     app.innerHTML = `
       <div class="dashboard-shell">
         <div class="mobile-nav-bar">
@@ -738,11 +740,13 @@ async function renderDashboard(selectedView = 'dashboard') {
       </div>
     `
 
+    }
+
     const mobileNavOverlay = app.querySelector('#mobile-nav-overlay')
     const mobileMenuToggle = app.querySelector('.mobile-menu-toggle')
     const closeMobileMenu = app.querySelector('#close-mobile-menu')
 
-    if (mobileMenuToggle && mobileNavOverlay) {
+    if (!reuseShell && mobileMenuToggle && mobileNavOverlay) {
       mobileMenuToggle.addEventListener('click', () => mobileNavOverlay.classList.add('open'))
     }
 
@@ -756,6 +760,7 @@ async function renderDashboard(selectedView = 'dashboard') {
       })
     }
 
+    if (!reuseShell) {
     const topbarExport = app.querySelector('.topbar-actions .secondary-btn')
     const topbarAlert = app.querySelector('.topbar-actions .primary-btn')
 
@@ -768,13 +773,14 @@ async function renderDashboard(selectedView = 'dashboard') {
         showToast('Alerta creada y publicada en el centro de control')
       })
     }
+    }
 
     app.querySelector('#focus-container-form')?.addEventListener('click', () => {
       app.querySelector('#container-form')?.scrollIntoView({ behavior: 'smooth', block: 'center' })
       app.querySelector('#container-form input[name="code"]')?.focus()
     })
 
-    app.querySelectorAll('.menu-item').forEach(button => {
+    if (!reuseShell) app.querySelectorAll('.menu-item').forEach(button => {
       button.addEventListener('click', () => {
         const nextView = button.dataset.view
         if (mobileNavOverlay) mobileNavOverlay.classList.remove('open')
@@ -787,7 +793,7 @@ async function renderDashboard(selectedView = 'dashboard') {
     })
     app.querySelector('#open-collect-priority')?.addEventListener('click', () => renderDashboard('containers'))
 
-    app.querySelectorAll('.logout-btn').forEach(button => {
+    if (!reuseShell) app.querySelectorAll('.logout-btn').forEach(button => {
       button.addEventListener('click', () => {
         clearSensorCycleTimer()
         clearMaps()
@@ -981,26 +987,11 @@ async function renderDashboard(selectedView = 'dashboard') {
       } catch (error) { showToast('No se pudo validar el QR. Comprueba el ID del ciudadano.', 'error') }
     })
 
-    const rewardsList = app.querySelector('#rewards-list')
-    if (rewardsList) {
-      try {
-        const rewards = await fetchRewards()
-        rewardsList.innerHTML = rewards.data.length ? rewards.data.map(reward => `<div class="channel-row"><span>${reward.reward_name}<small>${reward.points_cost} pts</small></span><button class="chip redeem-reward" data-reward-id="${reward.id}" data-reward-name="${reward.reward_name}" type="button">Canjear</button></div>`).join('') : '<p class="form-hint">No hay recompensas activas.</p>'
-        rewardsList.querySelectorAll('.redeem-reward').forEach(button => {
-          button.addEventListener('click', async () => {
-            const citizenId = window.prompt(`ID del ciudadano para canjear ${button.dataset.rewardName}`)
-            if (!citizenId) return
-            try {
-              const result = await redeemReward(citizenId.trim(), button.dataset.rewardId)
-              showToast(`Recompensa canjeada: ${result.reward}`)
-            } catch (error) { showToast(error.message, 'error') }
-          })
-        })
-      } catch (error) {
-        rewardsList.innerHTML = '<p class="form-hint">No se pudieron cargar las recompensas.</p>'
-      }
-    }
+    if (app.querySelector('#rewards-list')) mountRewardCatalog(message => showToast(message, 'error'))
 
+    if (selectedView === 'cierre') fillDayClose()
+    if (selectedView === 'reporting') fetchIncidents().then(incidents => mountIncidentDesk(incidents.data, data.fleet, message => showToast(message, 'error'))).catch(error => showToast(error.message, 'error'))
+    if (selectedView === 'sensors') syncSensorCycle().catch(error => showToast(error.message, 'error'))
     if (selectedView === 'citizens') {
       mountIncentives()
       app.querySelector('#donation-form')?.addEventListener('donation-saved', event => {
@@ -1155,6 +1146,8 @@ async function renderDashboard(selectedView = 'dashboard') {
 if (donationCodeFromUrl()) {
   renderPublicDonation(donationCodeFromUrl(), message => showToast(message))
   document.querySelector('#donation-form')?.addEventListener('donation-error', event => showToast(event.detail, 'error'))
+} else if (driverSheetRequested()) {
+  renderDriverSheet(message => showToast(message, 'error'))
 } else if (citizenPortalRequested()) {
   renderCitizenPortal((message, type) => showToast(message, type))
 } else {

@@ -93,6 +93,16 @@ def health_check():
     return {"status": "ok", "service": "WasteWise API"}
 
 
+@app.get("/api/day-close")
+def day_close():
+    from services.fieldwork import build_day_close
+
+    alerts = safe_supabase_query("alerts", "title,description,created_at", [])
+    incidents = safe_supabase_query("citizen_incidents", "status,category,created_at", [])
+    citizens = safe_supabase_query("citizens", "points", [])
+    return build_day_close(alerts, incidents, citizens)
+
+
 @app.get("/api/dashboard")
 def dashboard():
     containers = safe_supabase_query(

@@ -7,6 +7,7 @@ from pydantic import BaseModel, Field
 
 from services.database import supabase
 from services.events import publish_event
+from services.fieldwork import assigned_vehicle, citizen_status, with_vehicle
 
 TRACKING_RE = re.compile(r"\[(RAD-[A-Z0-9]{6})\]")
 TRACKING_ALPHABET = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789"
@@ -40,8 +41,10 @@ def public_incident(incident: dict) -> dict:
         "tracking_code": tracking_code_of(incident),
         "category": incident.get("category"),
         "status": incident.get("status"),
+        "assigned_vehicle": assigned_vehicle(description),
+        "display_status": citizen_status(incident.get("status"), assigned_vehicle(description)),
         "description": description,
-        "public_description": TRACKING_RE.sub("", description).strip(),
+        "public_description": TRACKING_RE.sub("", description).replace(f"[VEH:{assigned_vehicle(description) or ''}]", "").strip(),
         "latitude": incident.get("latitude"),
         "longitude": incident.get("longitude"),
         "created_at": incident.get("created_at"),
@@ -105,6 +108,23 @@ def list_incidents(status: str | None = None):
     if status:
         query = query.eq("status", status)
     return {"data": query.execute().data}
+
+
+@app.patch("/incidents/{incident_id}/assign")
+def assign_incident(incident_id: str, vehicle: str):
+    plate = vehicle.strip().upper()
+    if not re.fullmatch(r"[A-Z0-9-]{2,16}", plate):
+        raise HTTPException(status_code=422, detail="La placa no es válida")
+    current = supabase.table("citizen_incidents").select("id,description,status").eq("id", incident_id).limit(1).execute().data
+    if not current:
+        raise HTTPException(status_code=404, detail="No encontramos esa solicitud")
+    updated = (
+        supabase.table("citizen_incidents")
+        .update({"status": "assigned", "description": with_vehicle(current[0].get("description"), plate)})
+        .eq("id", incident_id)
+        .execute()
+    )
+    return {"data": public_incident(updated.data[0])}
 
 
 @app.patch("/incidents/{incident_id}/status")

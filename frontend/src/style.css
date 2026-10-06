@@ -1650,6 +1650,18 @@ button {
 .portal-actions, .portal-row { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
 .ticket-card { display: grid; gap: 6px; padding: 12px; border-radius: 14px; background: var(--panel-soft); }
 .ticket-card strong { font-family: 'Space Grotesk', sans-serif; letter-spacing: 0.04em; }
+.schedule-list, .catalog-grid { display: grid; gap: 10px; }
+.schedule-list article, .catalog-grid article, .driver-stop { display: grid; gap: 4px; padding: 12px; border-radius: 14px; background: var(--panel-soft); }
+.schedule-list article { grid-template-columns: 1fr auto; }
+.schedule-list b, .catalog-grid b { color: var(--green, #0b7a45); }
+.driver-sheet { max-width: 520px; margin: 0 auto; padding: 20px 16px 40px; display: grid; gap: 14px; }
+.driver-sheet header { display: flex; gap: 12px; align-items: center; }
+.driver-stop { grid-template-columns: auto 1fr auto; align-items: center; }
+.day-close .kpi-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: 10px; }
+@media print {
+  .sidebar, .mobile-nav-bar, .topbar, .toast { display: none !important; }
+  .main-panel { margin: 0; }
+}
 .public-donation-head { display: flex; gap: 16px; align-items: center; }
 .donation-form { align-content: start; }
 

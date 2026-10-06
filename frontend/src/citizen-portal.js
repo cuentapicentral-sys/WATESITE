@@ -1,4 +1,5 @@
 import { reportIncident, trackIncident } from './api.js'
+import { mountRewardCatalog, scheduleMarkup } from './field.js'
 
 const CATEGORIES = [
   'Contenedor desbordado',
@@ -13,6 +14,7 @@ const CATEGORIES = [
 const STATUS_LABEL = {
   reported: 'Recibida',
   assigned: 'En atención',
+  en_camino: 'En camino',
   resolved: 'Resuelta',
   rejected: 'No procede',
 }
@@ -31,8 +33,10 @@ function paintResult(node, incident) {
     node.innerHTML = '<p class="form-hint">No encontramos ese radicado. Revisa el código, por ejemplo RAD-7K2M9Q.</p>'
     return
   }
-  const status = STATUS_LABEL[incident.status] || incident.status
-  node.innerHTML = `<article class="ticket-card"><strong>${escapeHtml(incident.tracking_code || 'Radicado')}</strong><span class="status green">${escapeHtml(status)}</span><p>${escapeHtml(incident.category)}</p><small>${escapeHtml(incident.public_description || incident.description || '')}</small></article>`
+  const key = incident.display_status || (incident.assigned_vehicle ? 'en_camino' : incident.status)
+  const status = STATUS_LABEL[key] || key
+  const vehicle = incident.assigned_vehicle ? `<p>El vehículo ${escapeHtml(incident.assigned_vehicle)} va hacia tu reporte.</p>` : ''
+  node.innerHTML = `<article class="ticket-card"><strong>${escapeHtml(incident.tracking_code || 'Radicado')}</strong><span class="status green">${escapeHtml(status)}</span><p>${escapeHtml(incident.category)}</p>${vehicle}<small>${escapeHtml(incident.public_description || incident.description || '')}</small></article>`
 }
 
 export function renderCitizenPortal(notify = () => {}) {
@@ -52,6 +56,8 @@ export function renderCitizenPortal(notify = () => {}) {
         <a class="chip" href="?donacion=QR-RONDA">Donar reciclaje · 5 puntos</a>
         <a class="chip" href="/">Entrar como operador</a>
       </section>
+      ${scheduleMarkup()}
+      <section class="panel" id="rewards-list"></section>
       <form class="panel donation-form" id="citizen-report">
         <h3>Nueva solicitud</h3>
         <label>Nombre<input name="reporter_name" required placeholder="Ana López" /></label>
@@ -137,4 +143,5 @@ export function renderCitizenPortal(notify = () => {}) {
     lookup(new FormData(trackForm).get('code'))
   })
   if (preset) lookup(preset)
+  mountRewardCatalog((message, type = 'error') => notify(message, type))
 }

@@ -15,6 +15,7 @@ from services.citizens.points import (
 )
 from services.database import supabase
 from services.events import publish_event
+from services.fieldwork import REWARD_CATALOG, catalog_item
 
 app = FastAPI(title="WasteWise Citizen Service", version="1.0.0")
 app.add_middleware(
@@ -109,6 +110,42 @@ def submit_donation(payload: DonationPayload):
 @app.post("/citizens/{citizen_id}/scans")
 def register_qr_scan(citizen_id: str, payload: ScanPayload):
     return award_photo_points(citizen_id, payload.qr_code)
+
+
+class CatalogRedeemPayload(BaseModel):
+    phone: str = Field(min_length=7, max_length=20)
+    code: str = Field(min_length=3, max_length=20)
+
+
+@app.get("/rewards/catalog")
+def reward_catalog():
+    return {"data": REWARD_CATALOG}
+
+
+@app.post("/rewards/redeem")
+def redeem_catalog(payload: CatalogRedeemPayload):
+    item = catalog_item(payload.code)
+    if not item:
+        raise HTTPException(status_code=404, detail="Ese premio no está en el catálogo")
+    phone = normalize_phone(payload.phone)
+    matches = supabase.table("citizens").select("*").ilike("name", f"%#{phone}").execute().data
+    if not matches:
+        raise HTTPException(status_code=404, detail="No hay un ciudadano con ese celular. Primero debe registrarse.")
+    citizen = matches[0]
+    if int(citizen.get("points") or 0) < item["points_cost"]:
+        raise HTTPException(status_code=400, detail="Puntos insuficientes")
+    remaining = int(citizen["points"]) - item["points_cost"]
+    supabase.table("citizens").update({"points": remaining}).eq("id", citizen["id"]).execute()
+    try:
+        supabase.table("rewards").insert({
+            "citizen_id": citizen["id"],
+            "reward_name": item["reward_name"],
+            "points_cost": item["points_cost"],
+        }).execute()
+    except Exception:
+        pass
+    publish_event("reward.redeemed", {"citizen_id": citizen["id"], "reward": item["reward_name"], "points": item["points_cost"]}, "reward.redeemed")
+    return {"status": "redeemed", "reward_name": item["reward_name"], "points": remaining}
 
 
 @app.get("/rewards")
