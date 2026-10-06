@@ -1,6 +1,7 @@
 import './style.css'
 import { createCitizen, createContainer, deleteContainer, fetchCitizens, fetchDashboardData, fetchFleetVehicles, fetchIncidents, fetchNotifications, fetchRewards, fetchServiceData, ingestSensorReading, optimizeRoute, publishNotification, redeemReward, registerQrScan, registerVehicle, reportIncident, syncSensorCycle, updateContainer, updateIncidentStatus } from './api.js'
 import { getSession, loginUser, logoutUser, registerUser } from './auth.js'
+import { planCollection, pointAlong, shortestLoop } from './dijkstra.js'
 import { donationCodeFromUrl, incentivesBody, mountIncentives, renderPublicDonation } from './incentives.js'
 
 const app = document.querySelector('#app')
@@ -183,9 +184,11 @@ function clearMaps() {
   try { window.wastewiseMap?.remove() } catch { /* el mapa ya no está en pantalla */ }
   try { window.wastewiseFleetMap?.remove() } catch { /* el mapa ya no está en pantalla */ }
   try { window.wastewiseIncentiveMap?.remove() } catch { /* el mapa ya no está en pantalla */ }
+  try { window.wastewiseRouteMap?.remove() } catch { /* el mapa ya no está en pantalla */ }
   window.wastewiseMap = null
   window.wastewiseFleetMap = null
   window.wastewiseIncentiveMap = null
+  window.wastewiseRouteMap = null
 }
 
 function fillTone(level) {
@@ -331,16 +334,58 @@ function vehicleIsMoving(state) {
   return !['revision', 'revisión', 'fuera_de_servicio', 'fuera de servicio'].includes(value)
 }
 
-function pointOnLoop(points, progress) {
-  const scaled = (((progress % 1) + 1) % 1) * points.length
-  const index = Math.floor(scaled) % points.length
-  const next = (index + 1) % points.length
-  const t = scaled - Math.floor(scaled)
-  return {
-    lat: points[index].lat + (points[next].lat - points[index].lat) * t,
-    lng: points[index].lng + (points[next].lng - points[index].lng) * t,
-    place: t < 0.18 ? points[index].place : 'En tránsito',
+function dijkstraRoute(stops) {
+  const loop = stops.map(stop => ({ ...stop, latitude: stop.latitude ?? stop.lat, longitude: stop.longitude ?? stop.lng }))
+  return shortestLoop([FLEET_DEPOT, ...loop])
+}
+
+function collectionPath(containers) {
+  const urgent = containers.map(locateContainer).filter(container => Number(container.fill_level) >= 70)
+  const stops = urgent.length ? urgent : containers.map(locateContainer)
+  if (!stops.length) return dijkstraRoute(FLEET_ROUTES[0])
+  return planCollection(FLEET_DEPOT, stops).path
+}
+
+function animateTrucks(map, fleet, containers, pathFor, listId, drawPaths = true) {
+  const movers = fleet.map((vehicle, index) => {
+    const moving = vehicleIsMoving(vehicle.state)
+    const route = moving ? pathFor(vehicle, index) : shortestLoop([FLEET_DEPOT, FLEET_DEPOT])
+    if (drawPaths && moving && route.length > 1) {
+      window.L.polyline(route.map(point => [point.lat, point.lng]), { color: '#1f8f5f', weight: 3, opacity: 0.55 }).addTo(map)
+    }
+    const seed = [...String(vehicle.id || index)].reduce((sum, char) => sum + char.charCodeAt(0), 0)
+    const start = route[0] || FLEET_DEPOT
+    const marker = window.L.marker([start.lat, start.lng], {
+      icon: window.L.divIcon({
+        className: 'truck-marker',
+        html: `<span class="${moving ? 'moving' : 'parked'}">▰</span>`,
+        iconSize: [32, 32],
+        iconAnchor: [16, 16],
+      }),
+      zIndexOffset: 500,
+    }).addTo(map)
+    return { vehicle, route, marker, moving, offset: (seed % 90) / 100 }
+  })
+  const tick = () => {
+    let container = null
+    try { container = map.getContainer() } catch { return }
+    if (!container || !document.body.contains(container)) return
+    const now = Date.now() / 1000
+    const rows = movers.map(item => {
+      const progress = item.moving ? (now / 75 + item.offset) % 1 : 0
+      const point = pointAlong(item.route, progress)
+      item.marker.setLatLng([point.lat, point.lng])
+      const nearby = item.moving ? containers.map(locateContainer).find(container => Math.hypot(container.latitude - point.lat, container.longitude - point.lng) < 0.0035) : null
+      const action = !item.moving ? 'Detenido en patio' : nearby && Number(nearby.fill_level) >= 75 ? `Vaciando ${nearby.code}` : `Dijkstra · ${point.place}`
+      item.marker.bindPopup(`<strong>${item.vehicle.id}</strong><br>${item.vehicle.type}<br>${action}<br>${point.lat.toFixed(5)}, ${point.lng.toFixed(5)}`)
+      return `<article><strong>${item.vehicle.id}</strong><span>${action}</span><small>${point.lat.toFixed(5)}, ${point.lng.toFixed(5)}</small></article>`
+    })
+    const list = document.getElementById(listId)
+    if (list) list.innerHTML = rows.join('') || '<p class="form-hint">No hay vehículos registrados.</p>'
+    window.fleetMotionFrame = requestAnimationFrame(tick)
   }
+  setTimeout(() => map.invalidateSize(), 180)
+  tick()
 }
 
 function mountFleetMap(fleet, containers) {
@@ -363,42 +408,39 @@ function mountFleetMap(fleet, containers) {
       weight: 1,
     }).addTo(map).bindPopup(`${container.code} · ${container.fill_level}%`)
   })
-  const movers = fleet.map((vehicle, index) => {
-    const moving = vehicleIsMoving(vehicle.state)
-    const route = moving ? FLEET_ROUTES[index % FLEET_ROUTES.length] : [FLEET_DEPOT, FLEET_DEPOT]
-    if (moving) {
-      window.L.polyline(route.map(point => [point.lat, point.lng]), { color: '#1f8f5f', weight: 3, opacity: 0.4 }).addTo(map)
-    }
-    const seed = [...String(vehicle.id || index)].reduce((sum, char) => sum + char.charCodeAt(0), 0)
-    const marker = window.L.marker([route[0].lat, route[0].lng], {
-      icon: window.L.divIcon({
-        className: 'truck-marker',
-        html: `<span class="${moving ? 'moving' : 'parked'}">▰</span>`,
-        iconSize: [32, 32],
-        iconAnchor: [16, 16],
-      }),
-      zIndexOffset: 500,
-    }).addTo(map)
-    return { vehicle, route, marker, moving, offset: (seed % 90) / 100 }
-  })
-  const tick = () => {
-    if (!document.getElementById('fleet-map')) return
-    const now = Date.now() / 1000
-    const rows = movers.map(item => {
-      const progress = item.moving ? (now / 140 + item.offset) % 1 : 0
-      const point = pointOnLoop(item.route, progress)
-      const nearby = item.moving ? containers.map(locateContainer).find(container => Math.hypot(container.latitude - point.lat, container.longitude - point.lng) < 0.0035) : null
-      const action = !item.moving ? 'Detenido en patio' : nearby && Number(nearby.fill_level) >= 75 ? `Vaciando ${nearby.code}` : `Recorriendo ${point.place}`
-      item.marker.bindPopup(`<strong>${item.vehicle.id}</strong><br>${item.vehicle.type}<br>${action}<br>${point.lat.toFixed(5)}, ${point.lng.toFixed(5)}`)
-      return `<article><strong>${item.vehicle.id}</strong><span>${action}</span><small>${point.lat.toFixed(5)}, ${point.lng.toFixed(5)}</small></article>`
-    })
-    const list = document.getElementById('fleet-live-list')
-    if (list) list.innerHTML = rows.join('') || '<p class="form-hint">No hay vehículos registrados.</p>'
-    window.fleetMotionFrame = requestAnimationFrame(tick)
-  }
   window.wastewiseFleetMap = map
-  setTimeout(() => map.invalidateSize(), 180)
-  tick()
+  animateTrucks(map, fleet, containers, (_vehicle, index) => dijkstraRoute(FLEET_ROUTES[index % FLEET_ROUTES.length]), 'fleet-live-list')
+}
+
+function mountRouteMotion(fleet, containers, forcedPath) {
+  const node = document.getElementById('routes-map')
+  if (!node || !window.L) return
+  if (window.wastewiseRouteMap) {
+    window.wastewiseRouteMap.remove()
+    window.wastewiseRouteMap = null
+  }
+  const map = window.L.map(node).setView([MONTERIA.lat, MONTERIA.lng], 13)
+  window.L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+    maxZoom: 19,
+    attribution: '&copy; OpenStreetMap · Dijkstra · Montería',
+  }).addTo(map)
+  const path = forcedPath?.length ? forcedPath : collectionPath(containers)
+  if (path.length > 1) {
+    const line = window.L.polyline(path.map(point => [point.lat, point.lng]), { color: '#1f8f5f', weight: 4, opacity: 0.75 }).addTo(map)
+    map.fitBounds(line.getBounds(), { padding: [28, 28], maxZoom: 14 })
+  }
+  containers.map(locateContainer).forEach(container => {
+    window.L.circleMarker([container.latitude, container.longitude], {
+      radius: 5,
+      color: Number(container.fill_level) >= 70 ? '#dc4a4e' : '#7dcea0',
+      fillOpacity: 0.85,
+      weight: 1,
+    }).addTo(map)
+  })
+  const trucks = fleet.filter(vehicleIsMoving)
+  const moving = trucks.length ? trucks : [{ id: 'Ruta Dijkstra', type: 'Camión compactador', state: 'en_ruta' }]
+  window.wastewiseRouteMap = map
+  animateTrucks(map, moving, containers, () => path, 'routes-live-list', false)
 }
 
 function getViewMarkup(view, data) {
@@ -427,7 +469,7 @@ function getViewMarkup(view, data) {
     <section class="kpi-dashboard" id="analytics-kpis"><div class="loading-card">Consultando Analytics Service...</div></section>`
 
   if (view === 'routes') {
-    return `${pageIntro('Rutas y recorridos · Route Optimization Service :8102', 'Optimización de rutas', 'Prioriza automáticamente los contenedores con mayor nivel de llenado.', '<span class="live-pill"><i></i> Servicio activo</span>')}<form class="route-optimizer panel" id="route-optimizer"><label>Zona<select name="zone"><option value="">Todas las zonas</option>${[...new Set(containers.map(container => container.zone))].map(zone => `<option>${zone}</option>`).join('')}</select></label><label>Máximo de paradas<input name="max_stops" type="number" min="1" max="50" value="10" /></label><button class="primary-btn" type="submit">Generar ruta óptima</button></form><section class="route-grid">${routes.map(route => `<article class="info-card route-card"><div class="route-topline"><strong>${route.route}</strong><span class="status ${route.color}">${route.status}</span></div><p>${route.area}</p><small>ETA: ${route.eta}</small></article>`).join('')}</section><div id="route-result"></div>`
+    return `${pageIntro('Rutas y recorridos · Route Optimization Service :8102', 'Optimización de rutas', 'Dijkstra calcula el camino más corto por la malla vial de Montería y los camiones se mueven sobre esa ruta.', '<span class="live-pill"><i></i> Dijkstra</span>')}<section class="panel city-map-panel"><div class="panel-header"><h3>Recorrido en vivo</h3><span class="live-pill"><i></i> Camino mínimo</span></div><div id="routes-map" class="city-map" role="region" aria-label="Camiones recorriendo la ruta de Dijkstra en Montería"></div><div id="routes-live-list" class="fleet-live-list"></div></section><form class="route-optimizer panel" id="route-optimizer"><label>Zona<select name="zone"><option value="">Todas las zonas</option>${[...new Set(containers.map(container => container.zone))].map(zone => `<option>${zone}</option>`).join('')}</select></label><label>Máximo de paradas<input name="max_stops" type="number" min="1" max="50" value="10" /></label><button class="primary-btn" type="submit">Generar ruta óptima</button></form><section class="route-grid">${routes.map(route => `<article class="info-card route-card"><div class="route-topline"><strong>${route.route}</strong><span class="status ${route.color}">${route.status}</span></div><p>${route.area}</p><small>ETA: ${route.eta}</small></article>`).join('')}</section><div id="route-result"></div>`
   }
 
   if (view === 'containers') {
@@ -491,7 +533,7 @@ function getViewMarkup(view, data) {
     return `
       ${pageIntro('Recolección de residuos · Fleet Service :8103', 'Flota en Montería', 'Los vehículos en operación recorren la ciudad en tiempo real y vacían los contenedores llenos. Los que están en revisión permanecen en el patio.', '<span class="live-pill"><i></i> Tiempo real</span>')}
       <section class="stats-grid service-stats"><article class="stat-card"><span>Vehículos totales</span><strong>${fleet.length}</strong><em class="positive-text">● Registrados</em></article><article class="stat-card"><span>En operación</span><strong>${fleet.filter(vehicle => vehicleIsMoving(vehicle.state)).length}</strong><em class="positive-text">● En movimiento</em></article><article class="stat-card"><span>En ruta</span><strong>${fleet.filter(vehicle => vehicleIsMoving(vehicle.state)).length}</strong><em class="neutral-text">● En servicio</em></article><article class="stat-card"><span>En revisión</span><strong>${fleet.filter(vehicle => !vehicleIsMoving(vehicle.state)).length}</strong><em class="negative-text">● Taller</em></article></section>
-      <section class="panel city-map-panel"><div class="panel-header"><h3>Mapa de la flota</h3><span class="live-pill"><i></i> Montería, Córdoba</span></div><div id="fleet-map" class="city-map" role="region" aria-label="Mapa en tiempo real de la flota en Montería"></div><div id="fleet-live-list" class="fleet-live-list"></div><p class="form-hint">Los camiones verdes se mueven por la ciudad. Los puntos son contenedores; si el camión pasa junto a uno lleno, aparece como vaciado.</p></section>
+      <section class="panel city-map-panel"><div class="panel-header"><h3>Mapa de la flota</h3><span class="live-pill"><i></i> Montería, Córdoba</span></div><div id="fleet-map" class="city-map" role="region" aria-label="Mapa en tiempo real de la flota en Montería"></div><div id="fleet-live-list" class="fleet-live-list"></div><p class="form-hint">Cada camión sigue el camino mínimo de Dijkstra por las calles de Montería, no una línea recta. Si pasa junto a un contenedor lleno, aparece vaciándolo.</p></section>
       <div class="service-banner"><strong>Seguimiento de camiones y conductores</strong><span>Actualiza carga, estado y asignación desde Fleet Service.</span></div>
       <form class="panel service-form" id="fleet-form">
         <h3>Registrar vehículo</h3>
@@ -773,7 +815,9 @@ async function renderDashboard(selectedView = 'dashboard') {
       try {
         const result = await optimizeRoute({ zone: values.zone || null, max_stops: Number(values.max_stops) })
         const target = app.querySelector('#route-result')
-        target.innerHTML = `<div class="success-panel"><strong>${result.status === 'optimized' ? 'Ruta generada correctamente' : 'No hay paradas prioritarias'}</strong><span>${result.status === 'optimized' ? `${result.route.route_code} · ${result.stops.length} paradas · ETA ${result.route.eta}` : result.message}</span></div>`
+        const km = result.distance_km != null ? ` · ${result.distance_km} km` : ''
+        target.innerHTML = `<div class="success-panel"><strong>${result.status === 'optimized' ? 'Ruta Dijkstra generada' : result.message || 'Sin paradas nuevas'}</strong><span>${result.algorithm || 'dijkstra'}${result.route ? ` · ${result.route.route_code} · ${result.stops.length} paradas · ETA ${result.route.eta}` : ''}${km}</span></div>`
+        if (result.path?.length) mountRouteMotion(data.fleet || [], data.containers || [], result.path)
       } catch (error) { showToast(error.message, 'error') }
     })
 
@@ -793,6 +837,7 @@ async function renderDashboard(selectedView = 'dashboard') {
         renderDashboard('fleet')
       } catch (error) { showToast(error.message, 'error') }
     })
+    if (selectedView === 'routes') mountRouteMotion(data.fleet || [], data.containers || [])
 
     if (selectedView === 'fleet') mountFleetMap(data.fleet || [], data.containers || [])
 

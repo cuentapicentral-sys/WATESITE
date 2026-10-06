@@ -6,6 +6,7 @@ from pydantic import BaseModel, Field
 
 from services.database import supabase
 from services.events import consume_events, publish_event
+from services.routes.dijkstra import DEPOT, plan_collection
 from services.routes.optimization import prioritize_containers
 
 app = FastAPI(title="WasteWise Route Service", version="1.0.0")
@@ -29,17 +30,18 @@ def generate_priority_route(zone: str | None, max_stops: int):
         query = query.eq("zone", zone)
     containers = prioritize_containers(query.execute().data, zone, max_stops)
     if not containers:
-        return {"status": "no_stops", "stops": [], "message": "No hay contenedores prioritarios"}
+        return {"status": "no_stops", "stops": [], "path": [], "algorithm": "dijkstra", "message": "No hay contenedores prioritarios"}
 
+    plan = plan_collection(DEPOT, containers)
     area = zone or containers[0]["zone"]
     existing = supabase.table("routes").select("route_code").eq("area", area).in_("status", ["scheduled", "in_progress"]).limit(1).execute().data
     if existing:
-        return {"status": "already_scheduled", "stops": containers, "message": f"Ya existe una ruta activa para {area}"}
+        return {"status": "already_scheduled", "stops": plan["stops"], "path": plan["path"], "distance_km": round(plan["distance_km"], 2), "algorithm": "dijkstra", "message": f"Ya existe una ruta activa para {area}"}
 
     route = {"route_code": f"OPT-{datetime.now().strftime('%H%M%S')}", "area": area, "eta": (datetime.now() + timedelta(minutes=20)).strftime('%H:%M'), "status": "scheduled"}
     response = supabase.table("routes").insert(route).execute()
-    publish_event("route.generated", {"route": response.data[0], "stops": containers}, "route.generated")
-    return {"status": "optimized", "route": response.data[0], "stops": containers, "distance_strategy": "prioridad por llenado y zona"}
+    publish_event("route.generated", {"route": response.data[0], "stops": plan["stops"], "algorithm": "dijkstra"}, "route.generated")
+    return {"status": "optimized", "route": response.data[0], "stops": plan["stops"], "path": plan["path"], "distance_km": round(plan["distance_km"], 2), "algorithm": "dijkstra", "distance_strategy": "camino mínimo de Dijkstra sobre la malla vial de Montería"}
 
 
 def handle_fill_level_event(event: dict) -> None:
