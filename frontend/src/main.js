@@ -1,10 +1,11 @@
 import './style.css'
-import { collectContainer, createCitizen, createContainer, deleteContainer, fetchCitizens, fetchDashboardData, fetchFleetVehicles, fetchIncidents, fetchNotifications, fetchRewards, fetchServiceData, ingestSensorReading, optimizeRoute, publishNotification, redeemReward, registerQrScan, registerVehicle, reportIncident, syncSensorCycle, updateContainer, updateIncidentStatus } from './api.js'
+import { collectContainer, createCitizen, createContainer, deleteContainer, fetchCitizens, fetchDashboardData, fetchFleetVehicles, fetchIncidents, fetchMunicipalAnalytics, fetchNotifications, fetchRewards, fetchServiceData, ingestSensorReading, optimizeRoute, publishNotification, redeemReward, registerQrScan, registerVehicle, reportIncident, syncSensorCycle, updateContainer, updateIncidentStatus } from './api.js'
 import { citizenPortalRequested, renderCitizenPortal } from './citizen-portal.js'
 import { getSession, loginUser, logoutUser, registerUser } from './auth.js'
 import { fetchDrivingRoute, pointAtDistance, TRUCK_SPEED_KMH } from './dijkstra.js'
 import { STREET_ROUTES } from './street-routes.js'
 import { donationCodeFromUrl, incentivesBody, mountIncentives, renderPublicDonation } from './incentives.js'
+import { renderMunicipalAnalytics } from './analytics-view.js'
 import { clearFieldMaps, dayCloseMarkup, driverSheetRequested, fillDayClose, incidentDeskMarkup, mountIncidentDesk, mountRewardCatalog, renderDriverSheet } from './field.js'
 
 const app = document.querySelector('#app')
@@ -504,8 +505,8 @@ function getViewMarkup(view, data) {
     <div class="service-layout"><form class="panel service-form" id="notification-form"><h3>Publicar notificación</h3><label>Título<input name="title" placeholder="Ej. Ruta reprogramada" required /></label><label>Mensaje<textarea name="message" placeholder="Mensaje para los operadores..." required></textarea></label><label>Severidad<select name="severity"><option value="low">Baja</option><option value="medium" selected>Media</option><option value="high">Alta</option><option value="critical">Crítica</option></select></label><button class="primary-btn" type="submit">Publicar alerta</button></form><article class="panel feed-panel"><div class="panel-header"><h3>Feed operativo</h3><button class="chip" id="refresh-notifications" type="button">Actualizar</button></div><div id="notifications-list">Cargando alertas…</div></article></div>`
 
   if (view === 'analytics') return `
-    ${pageIntro('Reportes y estadísticas · Analytics Service :8108', 'Analítica municipal', 'Indicadores agregados desde contenedores, rutas, flota y ciudadanía.', '<button class="secondary-btn" id="refresh-analytics">Actualizar KPIs</button>')}
-    <section class="kpi-dashboard" id="analytics-kpis"><div class="loading-card">Consultando Analytics Service...</div></section>`
+    ${pageIntro('Operación municipal', 'Analítica municipal', 'Lectura real de Montería: kilos pendientes, zonas, solicitudes y qué conviene hacer ahora.', '<button class="secondary-btn" id="refresh-analytics">Actualizar</button>')}
+    <section id="analytics-kpis"><div class="loading-card">Calculando con los datos de hoy...</div></section>`
 
   if (view === 'routes') {
     return `${pageIntro('Rutas y recorridos · Route Optimization Service :8102', 'Optimización de rutas', 'Los camiones siguen las calles reales de Montería a 22 km/h, doblando por las vías en lugar de ir en línea recta.', '<span class="live-pill"><i></i> Dijkstra</span>')}<section class="panel city-map-panel"><div class="panel-header"><h3>Recorrido en vivo</h3><span class="live-pill"><i></i> Camino mínimo</span></div><div id="routes-map" class="city-map" role="region" aria-label="Camiones recorriendo la ruta de Dijkstra en Montería"></div><div id="routes-live-list" class="fleet-live-list"></div></section><form class="route-optimizer panel" id="route-optimizer"><label>Zona<select name="zone"><option value="">Todas las zonas</option>${[...new Set(containers.map(container => container.zone))].map(zone => `<option>${zone}</option>`).join('')}</select></label><label>Máximo de paradas<input name="max_stops" type="number" min="1" max="50" value="10" /></label><button class="primary-btn" type="submit">Generar ruta óptima</button></form><section class="route-grid">${routes.map(route => `<article class="info-card route-card"><div class="route-topline"><strong>${route.route}</strong><span class="status ${route.color}">${route.status}</span></div><p>${route.area}</p><small>ETA: ${route.eta}</small></article>`).join('')}</section><div id="route-result"></div>`
@@ -1055,8 +1056,8 @@ async function renderDashboard(selectedView = 'dashboard') {
     if (analyticsTarget) {
       const loadAnalytics = async () => {
         try {
-          const result = await fetchServiceData('analytics', '/kpis')
-          analyticsTarget.innerHTML = `<article class="stat-card"><span>Contenedores supervisados</span><strong>${result.volume.containers}</strong><em>${result.volume.critical_containers} críticos</em></article><article class="stat-card"><span>Rutas operativas</span><strong>${result.operations.routes}</strong><em>${result.operations.active_routes} en curso</em></article><article class="stat-card"><span>Flota registrada</span><strong>${result.operations.vehicles}</strong><em>Datos en vivo</em></article><article class="stat-card"><span>Puntos ciudadanos</span><strong>${result.citizen_impact.points}</strong><em>${result.citizen_impact.incidents_resolved} incidencias resueltas</em></article>`
+          const result = await fetchMunicipalAnalytics()
+          renderMunicipalAnalytics(analyticsTarget, result)
         } catch (error) { analyticsTarget.innerHTML = `<div class="error-state"><p>${error.message}</p></div>` }
       }
       app.querySelector('#refresh-analytics')?.addEventListener('click', loadAnalytics)

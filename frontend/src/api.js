@@ -132,6 +132,13 @@ export function fetchDayClose() {
   });
 }
 
+export function fetchMunicipalAnalytics() {
+  return fetch(`${API_BASE_URL}/analytics`).then(async response => {
+    if (!response.ok) throw new Error('No se pudo calcular la analítica municipal');
+    return response.json();
+  });
+}
+
 export function redeemReward(citizenId, rewardId) {
   invalidateDashboard();
   return serviceRequest('citizens', `/citizens/${citizenId}/rewards/${rewardId}/redeem`, { method: 'POST' });

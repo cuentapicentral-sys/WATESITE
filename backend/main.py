@@ -103,6 +103,19 @@ def day_close():
     return build_day_close(alerts, incidents, citizens)
 
 
+@app.get("/api/analytics")
+def municipal_analytics():
+    from services.analytics.report import municipal_report
+
+    containers = safe_supabase_query("containers", "code,zone,fill_level,status,latitude,longitude", [])
+    routes = safe_supabase_query("routes", "status,area", [])
+    vehicles = safe_supabase_query("vehicles", "state,plate", [])
+    incidents = safe_supabase_query("citizen_incidents", "status,category,description,latitude,longitude,created_at", [])
+    citizens = safe_supabase_query("citizens", "points", [])
+    alerts = safe_supabase_query("alerts", "title,description,created_at", [])
+    return municipal_report(containers, routes, vehicles, incidents, citizens, alerts)
+
+
 @app.get("/api/dashboard")
 def dashboard():
     containers = safe_supabase_query(

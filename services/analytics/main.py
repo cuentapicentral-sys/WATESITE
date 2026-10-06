@@ -1,7 +1,6 @@
 import os
 import threading
 import time
-from datetime import datetime, timezone
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
@@ -23,26 +22,31 @@ refresh_lock = threading.Lock()
 
 
 def calculate_kpis():
-    containers = supabase.table("containers").select("fill_level,status").execute().data
-    routes = supabase.table("routes").select("status").execute().data
-    vehicles = supabase.table("vehicles").select("load_level").execute().data
+    from services.analytics.report import municipal_report
+
+    containers = supabase.table("containers").select("code,zone,fill_level,status,latitude,longitude").execute().data
+    routes = supabase.table("routes").select("status,area").execute().data
+    vehicles = supabase.table("vehicles").select("state,plate").execute().data
     citizens = supabase.table("citizens").select("points").execute().data
     try:
-        incidents = supabase.table("citizen_incidents").select("status").execute().data
+        incidents = supabase.table("citizen_incidents").select("status,category,description,latitude,longitude,created_at").execute().data
     except Exception:
         incidents = []
-    return {
-        "volume": {"containers": len(containers), "critical_containers": sum(item["status"] == "critical" for item in containers)},
-        "operations": {"routes": len(routes), "active_routes": sum(item["status"] == "in_progress" for item in routes), "vehicles": len(vehicles)},
-        "citizen_impact": {"citizens": len(citizens), "points": sum(item["points"] for item in citizens), "incidents_resolved": sum(item["status"] == "resolved" for item in incidents)},
-        "generated_at": datetime.now(timezone.utc).isoformat(),
-    }
+    try:
+        alerts = supabase.table("alerts").select("title,description,created_at").execute().data
+    except Exception:
+        alerts = []
+    return municipal_report(containers, routes, vehicles, incidents, citizens, alerts)
 
 
 def refresh_kpis():
     global latest_kpis
+    try:
+        report = calculate_kpis()
+    except Exception:
+        report = latest_kpis or {"summary": {}, "zones": [], "week": [], "decisions": []}
     with refresh_lock:
-        latest_kpis = calculate_kpis()
+        latest_kpis = report
 
 
 def handle_operational_event(event: dict) -> None:

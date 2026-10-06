@@ -1658,6 +1658,16 @@ button {
 .driver-sheet header { display: flex; gap: 12px; align-items: center; }
 .driver-stop { grid-template-columns: auto 1fr auto; align-items: center; }
 .day-close .kpi-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: 10px; }
+.decision-list, .zone-table { display: grid; gap: 8px; }
+.decision, .zone-row { padding: 12px; border-radius: 14px; background: var(--panel-soft); }
+.decision.critical { border-left: 4px solid #c2410c; }
+.decision.attention { border-left: 4px solid #b45309; }
+.decision.ok { border-left: 4px solid #0b7a45; }
+.zone-row { display: grid; grid-template-columns: 90px repeat(4, minmax(70px, 1fr)); gap: 8px; align-items: center; }
+.zone-row small { grid-column: 1 / -1; }
+.week-bars { display: grid; grid-template-columns: repeat(7, 1fr); gap: 8px; align-items: end; min-height: 110px; }
+.week-bars b { display: block; border-radius: 8px 8px 2px 2px; background: #0b7a45; }
+.week-bars span, .week-bars small { display: block; font-size: 11px; }
 @media print {
   .sidebar, .mobile-nav-bar, .topbar, .toast { display: none !important; }
   .main-panel { margin: 0; }
