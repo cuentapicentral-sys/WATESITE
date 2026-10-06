@@ -1,7 +1,8 @@
 import './style.css'
 import { createCitizen, createContainer, deleteContainer, fetchCitizens, fetchDashboardData, fetchFleetVehicles, fetchIncidents, fetchNotifications, fetchRewards, fetchServiceData, ingestSensorReading, optimizeRoute, publishNotification, redeemReward, registerQrScan, registerVehicle, reportIncident, syncSensorCycle, updateContainer, updateIncidentStatus } from './api.js'
 import { getSession, loginUser, logoutUser, registerUser } from './auth.js'
-import { planCollection, pointAlong, shortestLoop } from './dijkstra.js'
+import { fetchDrivingRoute, pointAtDistance, TRUCK_SPEED_KMH } from './dijkstra.js'
+import { STREET_ROUTES } from './street-routes.js'
 import { donationCodeFromUrl, incentivesBody, mountIncentives, renderPublicDonation } from './incentives.js'
 
 const app = document.querySelector('#app')
@@ -334,24 +335,20 @@ function vehicleIsMoving(state) {
   return !['revision', 'revisión', 'fuera_de_servicio', 'fuera de servicio'].includes(value)
 }
 
-function dijkstraRoute(stops) {
-  const loop = stops.map(stop => ({ ...stop, latitude: stop.latitude ?? stop.lat, longitude: stop.longitude ?? stop.lng }))
-  return shortestLoop([FLEET_DEPOT, ...loop])
+function streetRoute(index) {
+  return STREET_ROUTES[index % STREET_ROUTES.length].points
 }
 
-function collectionPath(containers) {
-  const urgent = containers.map(locateContainer).filter(container => Number(container.fill_level) >= 70)
-  const stops = urgent.length ? urgent : containers.map(locateContainer)
-  if (!stops.length) return dijkstraRoute(FLEET_ROUTES[0])
-  return planCollection(FLEET_DEPOT, stops).path
+function parkedPoint() {
+  return [{ lat: FLEET_DEPOT.lat, lng: FLEET_DEPOT.lng, place: FLEET_DEPOT.place }]
 }
 
 function animateTrucks(map, fleet, containers, pathFor, listId, drawPaths = true) {
   const movers = fleet.map((vehicle, index) => {
     const moving = vehicleIsMoving(vehicle.state)
-    const route = moving ? pathFor(vehicle, index) : shortestLoop([FLEET_DEPOT, FLEET_DEPOT])
+    const route = moving ? pathFor(vehicle, index) : parkedPoint()
     if (drawPaths && moving && route.length > 1) {
-      window.L.polyline(route.map(point => [point.lat, point.lng]), { color: '#1f8f5f', weight: 3, opacity: 0.55 }).addTo(map)
+      window.L.polyline(route.map(point => [point.lat, point.lng]), { color: '#0b7a45', weight: 5, opacity: 0.85 }).addTo(map)
     }
     const seed = [...String(vehicle.id || index)].reduce((sum, char) => sum + char.charCodeAt(0), 0)
     const start = route[0] || FLEET_DEPOT
@@ -364,7 +361,7 @@ function animateTrucks(map, fleet, containers, pathFor, listId, drawPaths = true
       }),
       zIndexOffset: 500,
     }).addTo(map)
-    return { vehicle, route, marker, moving, offset: (seed % 90) / 100 }
+    return { vehicle, route, marker, moving, offsetKm: ((seed % 70) / 100) * 6 }
   })
   const tick = () => {
     let container = null
@@ -372,11 +369,11 @@ function animateTrucks(map, fleet, containers, pathFor, listId, drawPaths = true
     if (!container || !document.body.contains(container)) return
     const now = Date.now() / 1000
     const rows = movers.map(item => {
-      const progress = item.moving ? (now / 75 + item.offset) % 1 : 0
-      const point = pointAlong(item.route, progress)
+      const traveled = item.moving ? (now / 3600) * TRUCK_SPEED_KMH + item.offsetKm : 0
+      const point = pointAtDistance(item.route, traveled)
       item.marker.setLatLng([point.lat, point.lng])
       const nearby = item.moving ? containers.map(locateContainer).find(container => Math.hypot(container.latitude - point.lat, container.longitude - point.lng) < 0.0035) : null
-      const action = !item.moving ? 'Detenido en patio' : nearby && Number(nearby.fill_level) >= 75 ? `Vaciando ${nearby.code}` : `Dijkstra · ${point.place}`
+      const action = !item.moving ? 'Detenido en patio' : nearby && Number(nearby.fill_level) >= 75 ? `Vaciando ${nearby.code}` : `En calle · ${point.place}`
       item.marker.bindPopup(`<strong>${item.vehicle.id}</strong><br>${item.vehicle.type}<br>${action}<br>${point.lat.toFixed(5)}, ${point.lng.toFixed(5)}`)
       return `<article><strong>${item.vehicle.id}</strong><span>${action}</span><small>${point.lat.toFixed(5)}, ${point.lng.toFixed(5)}</small></article>`
     })
@@ -409,7 +406,7 @@ function mountFleetMap(fleet, containers) {
     }).addTo(map).bindPopup(`${container.code} · ${container.fill_level}%`)
   })
   window.wastewiseFleetMap = map
-  animateTrucks(map, fleet, containers, (_vehicle, index) => dijkstraRoute(FLEET_ROUTES[index % FLEET_ROUTES.length]), 'fleet-live-list')
+  animateTrucks(map, fleet, containers, (_vehicle, index) => streetRoute(index), 'fleet-live-list')
 }
 
 function mountRouteMotion(fleet, containers, forcedPath) {
@@ -422,11 +419,11 @@ function mountRouteMotion(fleet, containers, forcedPath) {
   const map = window.L.map(node).setView([MONTERIA.lat, MONTERIA.lng], 13)
   window.L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
     maxZoom: 19,
-    attribution: '&copy; OpenStreetMap · Dijkstra · Montería',
+    attribution: '&copy; OpenStreetMap · calles de Montería',
   }).addTo(map)
-  const path = forcedPath?.length ? forcedPath : collectionPath(containers)
+  const path = forcedPath?.length > 8 ? forcedPath : streetRoute(0)
   if (path.length > 1) {
-    const line = window.L.polyline(path.map(point => [point.lat, point.lng]), { color: '#1f8f5f', weight: 4, opacity: 0.75 }).addTo(map)
+    const line = window.L.polyline(path.map(point => [point.lat, point.lng]), { color: '#0b7a45', weight: 5, opacity: 0.85 }).addTo(map)
     map.fitBounds(line.getBounds(), { padding: [28, 28], maxZoom: 14 })
   }
   containers.map(locateContainer).forEach(container => {
@@ -441,6 +438,14 @@ function mountRouteMotion(fleet, containers, forcedPath) {
   const moving = trucks.length ? trucks : [{ id: 'Ruta Dijkstra', type: 'Camión compactador', state: 'en_ruta' }]
   window.wastewiseRouteMap = map
   animateTrucks(map, moving, containers, () => path, 'routes-live-list', false)
+  if (!forcedPath) {
+    const urgent = containers.map(locateContainer).filter(container => Number(container.fill_level) >= 70).slice(0, 6)
+    const stops = [FLEET_DEPOT, ...(urgent.length ? urgent : FLEET_ROUTES[0]), FLEET_DEPOT]
+    fetchDrivingRoute(stops).then(streetPath => {
+      if (!document.getElementById('routes-map')) return
+      mountRouteMotion(fleet, containers, streetPath)
+    }).catch(() => {})
+  }
 }
 
 function getViewMarkup(view, data) {
@@ -469,7 +474,7 @@ function getViewMarkup(view, data) {
     <section class="kpi-dashboard" id="analytics-kpis"><div class="loading-card">Consultando Analytics Service...</div></section>`
 
   if (view === 'routes') {
-    return `${pageIntro('Rutas y recorridos · Route Optimization Service :8102', 'Optimización de rutas', 'Dijkstra calcula el camino más corto por la malla vial de Montería y los camiones se mueven sobre esa ruta.', '<span class="live-pill"><i></i> Dijkstra</span>')}<section class="panel city-map-panel"><div class="panel-header"><h3>Recorrido en vivo</h3><span class="live-pill"><i></i> Camino mínimo</span></div><div id="routes-map" class="city-map" role="region" aria-label="Camiones recorriendo la ruta de Dijkstra en Montería"></div><div id="routes-live-list" class="fleet-live-list"></div></section><form class="route-optimizer panel" id="route-optimizer"><label>Zona<select name="zone"><option value="">Todas las zonas</option>${[...new Set(containers.map(container => container.zone))].map(zone => `<option>${zone}</option>`).join('')}</select></label><label>Máximo de paradas<input name="max_stops" type="number" min="1" max="50" value="10" /></label><button class="primary-btn" type="submit">Generar ruta óptima</button></form><section class="route-grid">${routes.map(route => `<article class="info-card route-card"><div class="route-topline"><strong>${route.route}</strong><span class="status ${route.color}">${route.status}</span></div><p>${route.area}</p><small>ETA: ${route.eta}</small></article>`).join('')}</section><div id="route-result"></div>`
+    return `${pageIntro('Rutas y recorridos · Route Optimization Service :8102', 'Optimización de rutas', 'Los camiones siguen las calles reales de Montería a 22 km/h, doblando por las vías en lugar de ir en línea recta.', '<span class="live-pill"><i></i> Dijkstra</span>')}<section class="panel city-map-panel"><div class="panel-header"><h3>Recorrido en vivo</h3><span class="live-pill"><i></i> Camino mínimo</span></div><div id="routes-map" class="city-map" role="region" aria-label="Camiones recorriendo la ruta de Dijkstra en Montería"></div><div id="routes-live-list" class="fleet-live-list"></div></section><form class="route-optimizer panel" id="route-optimizer"><label>Zona<select name="zone"><option value="">Todas las zonas</option>${[...new Set(containers.map(container => container.zone))].map(zone => `<option>${zone}</option>`).join('')}</select></label><label>Máximo de paradas<input name="max_stops" type="number" min="1" max="50" value="10" /></label><button class="primary-btn" type="submit">Generar ruta óptima</button></form><section class="route-grid">${routes.map(route => `<article class="info-card route-card"><div class="route-topline"><strong>${route.route}</strong><span class="status ${route.color}">${route.status}</span></div><p>${route.area}</p><small>ETA: ${route.eta}</small></article>`).join('')}</section><div id="route-result"></div>`
   }
 
   if (view === 'containers') {
@@ -533,7 +538,7 @@ function getViewMarkup(view, data) {
     return `
       ${pageIntro('Recolección de residuos · Fleet Service :8103', 'Flota en Montería', 'Los vehículos en operación recorren la ciudad en tiempo real y vacían los contenedores llenos. Los que están en revisión permanecen en el patio.', '<span class="live-pill"><i></i> Tiempo real</span>')}
       <section class="stats-grid service-stats"><article class="stat-card"><span>Vehículos totales</span><strong>${fleet.length}</strong><em class="positive-text">● Registrados</em></article><article class="stat-card"><span>En operación</span><strong>${fleet.filter(vehicle => vehicleIsMoving(vehicle.state)).length}</strong><em class="positive-text">● En movimiento</em></article><article class="stat-card"><span>En ruta</span><strong>${fleet.filter(vehicle => vehicleIsMoving(vehicle.state)).length}</strong><em class="neutral-text">● En servicio</em></article><article class="stat-card"><span>En revisión</span><strong>${fleet.filter(vehicle => !vehicleIsMoving(vehicle.state)).length}</strong><em class="negative-text">● Taller</em></article></section>
-      <section class="panel city-map-panel"><div class="panel-header"><h3>Mapa de la flota</h3><span class="live-pill"><i></i> Montería, Córdoba</span></div><div id="fleet-map" class="city-map" role="region" aria-label="Mapa en tiempo real de la flota en Montería"></div><div id="fleet-live-list" class="fleet-live-list"></div><p class="form-hint">Cada camión sigue el camino mínimo de Dijkstra por las calles de Montería, no una línea recta. Si pasa junto a un contenedor lleno, aparece vaciándolo.</p></section>
+      <section class="panel city-map-panel"><div class="panel-header"><h3>Mapa de la flota</h3><span class="live-pill"><i></i> Montería, Córdoba</span></div><div id="fleet-map" class="city-map" role="region" aria-label="Mapa en tiempo real de la flota en Montería"></div><div id="fleet-live-list" class="fleet-live-list"></div><p class="form-hint">La línea verde es la calle real. Los camiones la recorren despacio, a 22 km/h, y no cruzan las manzanas en línea recta.</p></section>
       <div class="service-banner"><strong>Seguimiento de camiones y conductores</strong><span>Actualiza carga, estado y asignación desde Fleet Service.</span></div>
       <form class="panel service-form" id="fleet-form">
         <h3>Registrar vehículo</h3>
@@ -816,8 +821,9 @@ async function renderDashboard(selectedView = 'dashboard') {
         const result = await optimizeRoute({ zone: values.zone || null, max_stops: Number(values.max_stops) })
         const target = app.querySelector('#route-result')
         const km = result.distance_km != null ? ` · ${result.distance_km} km` : ''
-        target.innerHTML = `<div class="success-panel"><strong>${result.status === 'optimized' ? 'Ruta Dijkstra generada' : result.message || 'Sin paradas nuevas'}</strong><span>${result.algorithm || 'dijkstra'}${result.route ? ` · ${result.route.route_code} · ${result.stops.length} paradas · ETA ${result.route.eta}` : ''}${km}</span></div>`
-        if (result.path?.length) mountRouteMotion(data.fleet || [], data.containers || [], result.path)
+        target.innerHTML = `<div class="success-panel"><strong>${result.status === 'optimized' ? 'Ruta por calles generada' : result.message || 'Sin paradas nuevas'}</strong><span>${result.route ? `${result.route.route_code} · ${result.stops.length} paradas · ETA ${result.route.eta}` : 'Calles de Montería'}${km}</span></div>`
+        const stops = [FLEET_DEPOT, ...(result.stops || []).slice(0, 6).map(locateContainer), FLEET_DEPOT]
+        fetchDrivingRoute(stops).then(streetPath => mountRouteMotion(data.fleet || [], data.containers || [], streetPath)).catch(() => showToast('No se pudo trazar la calle', 'error'))
       } catch (error) { showToast(error.message, 'error') }
     })
 

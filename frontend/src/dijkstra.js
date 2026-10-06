@@ -160,3 +160,38 @@ export function pointAlong(path, progress) {
     place: ratio < 0.35 ? origin.place : 'En tránsito',
   }
 }
+
+export const TRUCK_SPEED_KMH = 22
+
+export function pointAtDistance(path, kilometers) {
+  if (!path?.length) return { lat: 8.74798, lng: -75.88143, place: 'Montería' }
+  if (path.length < 2) return { ...path[0] }
+  const lengths = [0]
+  for (let index = 1; index < path.length; index += 1) {
+    lengths.push(lengths[index - 1] + haversineKm(path[index - 1], path[index]))
+  }
+  const total = lengths.at(-1) || 1
+  const target = ((kilometers % total) + total) % total
+  const index = Math.max(1, lengths.findIndex(length => length >= target))
+  const span = lengths[index] - lengths[index - 1] || 1
+  const ratio = (target - lengths[index - 1]) / span
+  const origin = path[index - 1]
+  const destination = path[Math.min(index, path.length - 1)]
+  return {
+    lat: origin.lat + (destination.lat - origin.lat) * ratio,
+    lng: origin.lng + (destination.lng - origin.lng) * ratio,
+    place: origin.place || 'Calle de Montería',
+  }
+}
+
+export async function fetchDrivingRoute(stops) {
+  const coords = stops
+    .map(stop => `${Number(stop.lng ?? stop.longitude).toFixed(6)},${Number(stop.lat ?? stop.latitude).toFixed(6)}`)
+    .join(';')
+  const response = await fetch(`https://router.project-osrm.org/route/v1/driving/${coords}?overview=full&geometries=geojson`)
+  if (!response.ok) throw new Error('No se pudo trazar la calle')
+  const data = await response.json()
+  const line = data.routes?.[0]?.geometry?.coordinates || []
+  if (line.length < 2) throw new Error('La ruta no tiene calles')
+  return line.map(([lng, lat]) => ({ lat, lng, place: 'Calle de Montería' }))
+}
