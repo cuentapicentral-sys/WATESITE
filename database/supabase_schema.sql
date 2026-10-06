@@ -111,9 +111,12 @@ create table if not exists public.citizen_incidents (
   photo_url text,
   latitude double precision,
   longitude double precision,
+  tracking_code text,
   status text not null default 'reported' check (status in ('reported', 'assigned', 'resolved', 'rejected')),
   created_at timestamptz default now()
 );
+
+alter table public.citizen_incidents add column if not exists tracking_code text;
 
 -- Optional: example rows
 drop policy if exists "demo_all_access_containers" on public.containers;

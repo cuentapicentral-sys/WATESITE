@@ -65,6 +65,14 @@ export function reportIncident(payload) {
   return serviceRequest('reporting', '/incidents', { method: 'POST', body: JSON.stringify(payload) });
 }
 
+export function trackIncident(code) {
+  return serviceRequest('reporting', `/incidents/track/${encodeURIComponent(code)}`);
+}
+
+export function collectContainer(containerId, payload = {}) {
+  return serviceRequest('containers', `/containers/${containerId}/collect`, { method: 'POST', body: JSON.stringify(payload) });
+}
+
 export function fetchIncidents() {
   return serviceRequest('reporting', '/incidents');
 }

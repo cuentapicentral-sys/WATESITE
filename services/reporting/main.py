@@ -1,9 +1,15 @@
+import re
+import secrets
+
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
 
 from services.database import supabase
 from services.events import publish_event
+
+TRACKING_RE = re.compile(r"\[(RAD-[A-Z0-9]{6})\]")
+TRACKING_ALPHABET = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789"
 
 app = FastAPI(title="WasteWise Citizen Reporting Service", version="1.0.0")
 app.add_middleware(
@@ -13,6 +19,34 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+
+def new_tracking_code() -> str:
+    return "RAD-" + "".join(secrets.choice(TRACKING_ALPHABET) for _ in range(6))
+
+
+def tracking_code_of(incident: dict) -> str | None:
+    if incident.get("tracking_code"):
+        return incident["tracking_code"]
+    match = TRACKING_RE.search(incident.get("description") or "")
+    return match.group(1) if match else None
+
+
+def public_incident(incident: dict) -> dict:
+    description = incident.get("description") or ""
+    photo = incident.get("photo_url")
+    return {
+        "id": incident.get("id"),
+        "tracking_code": tracking_code_of(incident),
+        "category": incident.get("category"),
+        "status": incident.get("status"),
+        "description": description,
+        "public_description": TRACKING_RE.sub("", description).strip(),
+        "latitude": incident.get("latitude"),
+        "longitude": incident.get("longitude"),
+        "created_at": incident.get("created_at"),
+        "has_photo": bool(photo),
+    }
 
 
 class IncidentPayload(BaseModel):
@@ -31,12 +65,38 @@ def health():
 
 @app.post("/incidents", status_code=201)
 def create_incident(payload: IncidentPayload):
+    code = new_tracking_code()
+    record = payload.model_dump()
+    record["description"] = f"[{code}] {record['description'].strip()}"[:500]
     try:
-        response = supabase.table("citizen_incidents").insert(payload.model_dump()).execute()
-        publish_event("incident.reported", response.data[0], "incident.reported")
-        return {"data": response.data[0]}
+        try:
+            response = supabase.table("citizen_incidents").insert({**record, "tracking_code": code}).execute()
+        except Exception:
+            response = supabase.table("citizen_incidents").insert(record).execute()
+        saved = response.data[0]
+        publish_event("incident.reported", public_incident(saved), "incident.reported")
+        return {"data": public_incident(saved), "tracking_code": code}
     except Exception as error:
         raise HTTPException(status_code=400, detail="No se pudo registrar la incidencia") from error
+
+
+@app.get("/incidents/track/{code}")
+def track_incident(code: str):
+    wanted = code.strip().upper().strip("[]")
+    if not re.fullmatch(r"RAD-[A-Z0-9]{6}", wanted):
+        raise HTTPException(status_code=422, detail="El radicado debe verse como RAD-7K2M9Q")
+    rows = (
+        supabase.table("citizen_incidents")
+        .select("id,category,description,status,latitude,longitude,created_at,photo_url")
+        .order("created_at", desc=True)
+        .limit(200)
+        .execute()
+        .data
+    )
+    found = next((item for item in rows if tracking_code_of(item) == wanted), None)
+    if not found:
+        raise HTTPException(status_code=404, detail="No encontramos ese radicado")
+    return {"data": public_incident(found)}
 
 
 @app.get("/incidents")

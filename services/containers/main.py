@@ -3,6 +3,8 @@ from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
 
 from services.database import supabase
+from services.events import publish_event
+from services.operations import collected_kg, collection_status
 
 app = FastAPI(title="WasteWise Container Service", version="1.0.0")
 app.add_middleware(
@@ -44,6 +46,36 @@ def create_container(payload: ContainerPayload):
         return {"data": response.data[0]}
     except Exception as error:
         raise HTTPException(status_code=400, detail="No se pudo registrar el contenedor") from error
+
+
+class CollectionPayload(BaseModel):
+    operator: str | None = None
+    vehicle_plate: str | None = None
+
+
+@app.post("/containers/{container_id}/collect")
+def collect_container(container_id: str, payload: CollectionPayload | None = None):
+    payload = payload or CollectionPayload()
+    query = supabase.table("containers").select("*").eq("id", container_id).limit(1).execute()
+    if not query.data:
+        query = supabase.table("containers").select("*").eq("code", container_id).limit(1).execute()
+    if not query.data:
+        raise HTTPException(status_code=404, detail="Contenedor no encontrado")
+    container = query.data[0]
+    kilos = collected_kg(container.get("fill_level"))
+    updated = supabase.table("containers").update({"fill_level": 0, "status": "normal"}).eq("id", container["id"]).execute().data[0]
+    try:
+        supabase.table("sensor_readings").insert({"container_id": container["id"], "fill_level": 0}).execute()
+    except Exception:
+        pass
+    who = payload.operator or payload.vehicle_plate or "operador"
+    supabase.table("alerts").insert({
+        "title": f"Recolección confirmada · {container['code']}",
+        "description": f"{who} vació {container['code']} en {container['zone']}. Se retiraron {kilos} kg estimados.",
+        "severity": "low",
+    }).execute()
+    publish_event("container.collected", {"container_id": container["id"], "code": container["code"], "collected_kg": kilos}, "container.collected")
+    return {"data": updated, "collected_kg": kilos, "previous_fill": container.get("fill_level"), "status": collection_status(0)}
 
 
 @app.get("/containers/critical")

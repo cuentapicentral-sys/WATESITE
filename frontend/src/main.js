@@ -1,5 +1,6 @@
 import './style.css'
-import { createCitizen, createContainer, deleteContainer, fetchCitizens, fetchDashboardData, fetchFleetVehicles, fetchIncidents, fetchNotifications, fetchRewards, fetchServiceData, ingestSensorReading, optimizeRoute, publishNotification, redeemReward, registerQrScan, registerVehicle, reportIncident, syncSensorCycle, updateContainer, updateIncidentStatus } from './api.js'
+import { collectContainer, createCitizen, createContainer, deleteContainer, fetchCitizens, fetchDashboardData, fetchFleetVehicles, fetchIncidents, fetchNotifications, fetchRewards, fetchServiceData, ingestSensorReading, optimizeRoute, publishNotification, redeemReward, registerQrScan, registerVehicle, reportIncident, syncSensorCycle, updateContainer, updateIncidentStatus } from './api.js'
+import { citizenPortalRequested, renderCitizenPortal } from './citizen-portal.js'
 import { getSession, loginUser, logoutUser, registerUser } from './auth.js'
 import { fetchDrivingRoute, pointAtDistance, TRUCK_SPEED_KMH } from './dijkstra.js'
 import { STREET_ROUTES } from './street-routes.js'
@@ -120,8 +121,9 @@ function renderAuth(mode = 'login', feedback = '') {
         </form>
         <div class="auth-divider"><span>o</span></div>
         <button class="sso-btn" type="button" id="demo-access"><span class="sso-icon">✦</span> Continuar con acceso demo</button>
+        <button class="sso-btn" type="button" id="citizen-portal"><span class="sso-icon">◌</span> Soy ciudadano: reportar sin cuenta</button>
         <p class="auth-switch">${isRegister ? '¿Ya tienes una cuenta?' : '¿Todavía no tienes una cuenta?'} <button type="button" class="text-btn" id="switch-auth">${isRegister ? 'Inicia sesión' : 'Regístrate gratis'}</button></p>
-        <small class="auth-note">Acceso de demostración local. Conecta Supabase Auth para producción.</small>
+        <small class="auth-note">El panel es para operadores. La ciudadanía reporta y consulta su radicado sin registrarse.</small>
       </section>
     </main>
   `
@@ -133,6 +135,11 @@ function renderAuth(mode = 'login', feedback = '') {
     event.currentTarget.textContent = input.type === 'password' ? 'Ver' : 'Ocultar'
   })
   app.querySelector('#switch-auth').addEventListener('click', () => renderAuth(isRegister ? 'login' : 'register'))
+  app.querySelector('#citizen-portal').addEventListener('click', () => {
+    const url = new URL(window.location.href)
+    url.search = '?ciudadano=1'
+    window.location.assign(url)
+  })
   app.querySelector('#demo-access').addEventListener('click', async () => {
     try {
       try {
@@ -448,6 +455,30 @@ function mountRouteMotion(fleet, containers, forcedPath) {
   }
 }
 
+
+function liveOperations(data) {
+  if (data.operations) return data.operations
+  const containers = data.containers || []
+  const fleet = data.fleet || []
+  const routes = data.routes || []
+  const zones = new Set(['centro', 'norte', 'sur', 'este', 'oeste'])
+  const present = new Set(containers.map(item => String(item.zone || '').trim().toLowerCase()))
+  const urgent = containers.filter(item => Number(item.fill_level) >= 75)
+  const critical = containers.filter(item => item.status === 'critical' || Number(item.fill_level) >= 90).length
+  return {
+    efficiency_pct: containers.length ? Math.round(100 * (containers.length - critical) / containers.length) : 0,
+    urgent_containers: urgent.length,
+    pending_kg: urgent.reduce((sum, item) => sum + Math.round(Number(item.fill_level) * 1.1), 0),
+    coverage_pct: Math.round(100 * [...zones].filter(zone => present.has(zone)).length / zones.size),
+    routes: routes.length,
+    active_routes: routes.filter(item => item.status === 'in_progress').length,
+    fleet_operating: fleet.filter(item => vehicleIsMoving(item.state)).length,
+    fleet_stopped: fleet.filter(item => !vehicleIsMoving(item.state)).length,
+    open_incidents: 0,
+    priority: urgent.sort((left, right) => Number(right.fill_level) - Number(left.fill_level)).slice(0, 6),
+  }
+}
+
 function getViewMarkup(view, data) {
   const { stats, containers = [], zones, routes, alerts, kpis, fleet = fleetData, citizens = citizenData, reports = reportData } = data
   const sectionTopbar = `<header class="topbar product-topbar"><label class="global-search"><span>⌕</span><input placeholder="Buscar zonas, rutas o contenedores..." aria-label="Buscar en operaciones" /></label><div class="topbar-actions"><button class="icon-btn" aria-label="Ver notificaciones">♧<i></i></button><span class="topbar-divider"></span><div class="profile-mini"><span class="user-avatar">${getInitials(getSession().name)}</span><span><strong>${getSession().name}</strong><small>${getSession().role}</small></span><b>⌄</b></div></div></header>`
@@ -489,10 +520,11 @@ function getViewMarkup(view, data) {
         <input name="fill_level" type="number" min="0" max="100" placeholder="Llenado %" required />
         <select name="status">
           <option value="normal">Normal</option>
+          <option value="attention">Atención</option>
           <option value="critical">Crítico</option>
+        </select>
         <input name="latitude" type="number" step="any" placeholder="Latitud" />
         <input name="longitude" type="number" step="any" placeholder="Longitud" />
-        </select>
         <button class="primary-btn" type="submit">Guardar</button>
         <button class="secondary-btn" type="button" id="cancel-container-edit">Limpiar</button>
       </form>
@@ -501,6 +533,7 @@ function getViewMarkup(view, data) {
           <article class="container-table-row">
             <strong>▣ ${container.code}</strong><span>${container.zone}</span><span><i class="dot ${container.status === 'critical' ? 'red' : 'green'}"></i>${container.status === 'critical' ? 'En mantenimiento' : 'Disponible'}</span><time>08:${String(Math.min(59, 12 + (container.fill_level % 40))).padStart(2, '0')}</time>
             <div class="card-actions">
+              <button class="chip collect-container" data-id="${container.id}" data-code="${container.code}" type="button">Vaciar</button>
               <button class="chip edit-container" data-container='${JSON.stringify(container)}'>Editar</button>
               <button class="chip warning delete-container" data-id="${container.id}">Eliminar</button>
             </div>
@@ -595,6 +628,7 @@ function getViewMarkup(view, data) {
     `
   }
 
+  const ops = liveOperations(data)
   return `
     <header class="topbar product-topbar">
       <label class="global-search"><span>⌕</span><input placeholder="Buscar zonas, rutas o contenedores..." aria-label="Buscar en operaciones" /></label>
@@ -609,14 +643,14 @@ function getViewMarkup(view, data) {
     <section class="overview-layout">
       <article class="overview-panel">
         <div class="overview-heading"><span>⌁</span><h3>Resumen general</h3></div>
-        <div class="overview-metrics"><div><span>♧</span><strong>87.4%</strong><small>Eficiencia en recolección</small><em>↑ 5.2% vs. mes anterior</em></div><div><span>⌖</span><strong>26</strong><small>Rutas hoy</small><em>↑ 3 nuevas</em></div><div><span>▣</span><strong>4.6 t</strong><small>Residuos recolectados</small><em>↑ 12.4% vs. ayer</em></div><div><span>◒</span><strong>98%</strong><small>Zonas cubiertas</small><em>↑ 2% vs. mes anterior</em></div></div>
+        <div class="overview-metrics"><div><span>♧</span><strong>${ops.efficiency_pct}%</strong><small>Contenedores bajo control</small><em>${ops.urgent_containers} por recoger</em></div><div><span>⌖</span><strong>${ops.active_routes}</strong><small>Rutas en curso</small><em>${ops.routes} registradas</em></div><div><span>▣</span><strong>${(ops.pending_kg / 1000).toFixed(1)} t</strong><small>Kilos pendientes</small><em>Contenedores al 75% o más</em></div><div><span>◒</span><strong>${ops.coverage_pct}%</strong><small>Zonas con servicio</small><em>${ops.open_incidents} solicitudes abiertas</em></div></div>
       </article>
-      <article class="operation-status panel"><div class="panel-header"><h3>Estado de la operación</h3><span class="status-leaf">◒</span></div><div class="status-ring"><strong>87%</strong><small>En operación</small></div><div class="status-legend"><span><i class="dot green"></i>En operación <b>${fleet.length || 22}</b></span><span><i class="dot amber"></i>En mantenimiento <b>3</b></span><span><i class="dot red"></i>Fuera de servicio <b>1</b></span></div></article>
+      <article class="operation-status panel"><div class="panel-header"><h3>Estado de la operación</h3><span class="status-leaf">◒</span></div><div class="status-ring"><strong>${ops.efficiency_pct}%</strong><small>Bajo control</small></div><div class="status-legend"><span><i class="dot green"></i>En calle <b>${ops.fleet_operating}</b></span><span><i class="dot amber"></i>Por recoger <b>${ops.urgent_containers}</b></span><span><i class="dot red"></i>En taller <b>${ops.fleet_stopped}</b></span></div></article>
     </section>
 
     <section class="shortcut-grid"><button class="shortcut-card" data-view="containers"><span>▣</span><strong>${containers.length}</strong><small>Contenedores activos</small><i>›</i><div class="shortcut-lines"><em>● Disponibles <b>${Math.max(containers.length - 1, 0)}</b></em><em>● En mantenimiento <b>1</b></em></div></button><button class="shortcut-card" data-view="routes"><span>⌖</span><strong>${routes.length}</strong><small>Rutas activas <b class="today-tag">Hoy</b></small><i>›</i><div class="mini-route-progress"><b></b></div><em>22 completadas <b>4 en curso</b></em></button><button class="shortcut-card" data-view="fleet"><span>▤</span><strong>${fleet.length}</strong><small>Servicios urbanos</small><i>›</i><div class="shortcut-lines"><em>♧ Limpieza de calles <b>3</b></em><em>⌁ Mantenimiento urbano <b>2</b></em></div></button><button class="shortcut-card" data-view="notifications"><span>♧</span><strong>${alerts.length}</strong><small>Alertas activas <b class="critical-tag">${alerts.filter(alert => alert.toLowerCase().includes('crít')).length || 2} críticas</b></small><i>›</i><div class="shortcut-lines"><em>◉ Contenedor fuera de servicio <b>1h</b></em><em>◌ Retraso en ruta <b>2h</b></em></div></button></section>
 
-    <section class="operations-lower"><article class="panel waste-capacity"><div class="panel-header"><h3>♻ Capacidad por tipo de residuo</h3><button class="chip">Últimos 7 días</button></div><div class="waste-row"><span><i class="dot green"></i>Orgánicos</span><div class="progress-wrap"><div class="progress-bar"><span style="width:72%"></span></div></div><b>72%</b><small>1.4 t</small></div><div class="waste-row"><span><i class="dot light-green"></i>Reciclables</span><div class="progress-wrap"><div class="progress-bar light"><span style="width:58%"></span></div></div><b>58%</b><small>1.1 t</small></div><div class="waste-row"><span><i class="dot gray"></i>Ordinarios</span><div class="progress-wrap"><div class="progress-bar gray"><span style="width:46%"></span></div></div><b>46%</b><small>0.8 t</small></div><div class="waste-row"><span><i class="dot navy"></i>Peligrosos</span><div class="progress-wrap"><div class="progress-bar navy"><span style="width:22%"></span></div></div><b>22%</b><small>0.4 t</small></div></article><article class="panel live-routes"><div class="panel-header"><h3>⌖ Rutas activas <small>(en tiempo real)</small></h3><button class="chip">Ver todas</button></div><div class="route-table"><div class="route-table-head"><span>Ruta</span><span>Zona</span><span>Estado</span><span>Progreso</span><span>Actualización</span></div>${routes.slice(0, 4).map(route => `<div class="route-table-row"><strong>▣ ${route.route}</strong><span>${route.area}</span><span><i class="dot green"></i>${route.status}</span><div class="table-progress"><b style="width:${route.status === 'in_progress' ? 64 : 32}%"></b></div><time>${route.eta}</time></div>`).join('')}</div></article></section>
+    <section class="operations-lower"><article class="panel waste-capacity"><div class="panel-header"><h3>Prioridad de recolección</h3><button class="chip" id="open-collect-priority" type="button">Ir a vaciar</button></div>${(ops.priority || []).length ? ops.priority.map(item => `<div class="waste-row"><span><i class="dot ${Number(item.fill_level) >= 90 ? 'red' : 'amber'}"></i>${item.code}</span><div class="progress-wrap"><div class="progress-bar"><span style="width:${item.fill_level}%"></span></div></div><b>${item.fill_level}%</b><small>${item.collected_kg || Math.round(Number(item.fill_level) * 1.1)} kg</small></div>`).join('') : '<p class="form-hint">Ningún contenedor está listo para recoger.</p>'}</article><article class="panel live-routes"><div class="panel-header"><h3>⌖ Rutas activas <small>(en tiempo real)</small></h3><button class="chip">Ver todas</button></div><div class="route-table"><div class="route-table-head"><span>Ruta</span><span>Zona</span><span>Estado</span><span>Progreso</span><span>Actualización</span></div>${routes.slice(0, 4).map(route => `<div class="route-table-row"><strong>▣ ${route.route}</strong><span>${route.area}</span><span><i class="dot green"></i>${route.status}</span><div class="table-progress"><b style="width:${route.status === 'in_progress' ? 64 : 32}%"></b></div><time>${route.eta}</time></div>`).join('')}</div></article></section>
   `
 }
 
@@ -687,9 +721,9 @@ async function renderDashboard(selectedView = 'dashboard') {
           </nav>
 
           <div class="sidebar-card">
-            <p class="card-label">Eficiencia</p>
-            <h3>87.4%</h3>
-            <div class="mini-bar"><span style="width: 87.4%"></span></div>
+            <p class="card-label">Bajo control</p>
+            <h3>${liveOperations(data).efficiency_pct}%</h3>
+            <div class="mini-bar"><span style="width: ${liveOperations(data).efficiency_pct}%"></span></div>
           </div>
           <div class="sidebar-user">
             <div class="user-avatar">${getInitials(getSession().name)}</div>
@@ -751,6 +785,7 @@ async function renderDashboard(selectedView = 'dashboard') {
     app.querySelectorAll('.shortcut-card[data-view]').forEach(button => {
       button.addEventListener('click', () => renderDashboard(button.dataset.view))
     })
+    app.querySelector('#open-collect-priority')?.addEventListener('click', () => renderDashboard('containers'))
 
     app.querySelectorAll('.logout-btn').forEach(button => {
       button.addEventListener('click', () => {
@@ -1055,6 +1090,16 @@ async function renderDashboard(selectedView = 'dashboard') {
           form.elements.code.focus()
         })
       })
+      app.querySelectorAll('.collect-container').forEach(button => {
+        button.addEventListener('click', async () => {
+          if (!window.confirm(`¿Confirmar que ${button.dataset.code} ya fue vaciado?`)) return
+          try {
+            const result = await collectContainer(button.dataset.id, { operator: getSession()?.name || 'Operador' })
+            showToast(`${button.dataset.code} vaciado: ${result.collected_kg} kg estimados`)
+            renderDashboard('containers')
+          } catch (error) { showToast(error.message, 'error') }
+        })
+      })
       app.querySelectorAll('.delete-container').forEach(button => {
         button.addEventListener('click', async () => {
           if (!window.confirm('¿Eliminar este contenedor?')) return
@@ -1110,6 +1155,8 @@ async function renderDashboard(selectedView = 'dashboard') {
 if (donationCodeFromUrl()) {
   renderPublicDonation(donationCodeFromUrl(), message => showToast(message))
   document.querySelector('#donation-form')?.addEventListener('donation-error', event => showToast(event.detail, 'error'))
+} else if (citizenPortalRequested()) {
+  renderCitizenPortal((message, type) => showToast(message, type))
 } else {
   renderDashboard()
 }

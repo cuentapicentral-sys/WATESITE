@@ -5,6 +5,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from backend.supabase_routes import router as supabase_router
 from backend.supabase_client import supabase
+from services.operations import operational_snapshot
 
 
 @asynccontextmanager
@@ -135,6 +136,8 @@ def dashboard():
         [{"name": "Ana", "points": 420}, {"name": "Luis", "points": 260}],
     )
     rewards = safe_supabase_query("rewards", "id", [{"id": 1}, {"id": 2}])
+    incidents = safe_supabase_query("citizen_incidents", "status", [])
+    operations = operational_snapshot(containers, routes_data, vehicles, incidents)
 
     zones_by_name = {}
     for container in containers:
@@ -196,10 +199,11 @@ def dashboard():
         "citizens": citizen_summary,
         "reports": reports,
         "kpis": [
-            {"label": "Contenedores críticos", "value": str(sum(container["status"] == "critical" for container in containers))},
-            {"label": "Alertas registradas", "value": str(len(alerts_data))},
-            {"label": "Rutas registradas", "value": str(len(routes_data))},
+            {"label": "Contenedores críticos", "value": str(operations["critical_containers"])},
+            {"label": "Kilos por recoger", "value": str(operations["pending_kg"])},
+            {"label": "Incidencias abiertas", "value": str(operations["open_incidents"])},
         ],
+        "operations": operations,
     }
 
 
