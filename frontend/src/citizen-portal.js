@@ -1,5 +1,5 @@
 import { reportIncident, trackIncident } from './api.js'
-import { mountRewardCatalog, scheduleMarkup } from './field.js'
+import { scheduleMarkup } from './field.js'
 
 const CATEGORIES = [
   'Contenedor desbordado',
@@ -54,10 +54,10 @@ export function renderCitizenPortal(notify = () => {}) {
       </header>
       <section class="portal-actions">
         <a class="chip" href="/donar/QR-RONDA">Donar reciclaje · 5 puntos</a>
+        <a class="chip" href="/premios">Reclamar premios</a>
         <a class="chip" href="/">Entrar como operador</a>
       </section>
       ${scheduleMarkup()}
-      <section class="panel" id="rewards-list"></section>
       <form class="panel donation-form" id="citizen-report">
         <h3>Nueva solicitud</h3>
         <label>Nombre<input name="reporter_name" required placeholder="Ana López" /></label>
@@ -143,5 +143,4 @@ export function renderCitizenPortal(notify = () => {}) {
     lookup(new FormData(trackForm).get('code'))
   })
   if (preset) lookup(preset)
-  mountRewardCatalog((message, type = 'error') => notify(message, type))
 }

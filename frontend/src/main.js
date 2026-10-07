@@ -5,9 +5,9 @@ import { getSession, loginUser, logoutUser, registerUser } from './auth.js'
 import { fetchDrivingRoute, pointAtDistance, TRUCK_SPEED_KMH } from './dijkstra.js'
 import { STREET_ROUTES } from './street-routes.js'
 import { adoptZoneRoutes, liveZonePath, servingZone, vehicleZone, zoneName } from './zone-routes.js'
-import { donationCodeFromUrl, incentivesBody, mountIncentives, renderPublicDonation } from './incentives.js'
+import { donationCodeFromUrl, incentivesBody, mountIncentives, renderPublicDonation, renderRewardsPage, rewardsPageRequested } from './incentives.js'
 import { renderMunicipalAnalytics } from './analytics-view.js'
-import { clearFieldMaps, dayCloseMarkup, driverSheetRequested, fillDayClose, incidentDeskMarkup, mountIncidentDesk, mountRewardCatalog, renderDriverSheet } from './field.js'
+import { clearFieldMaps, dayCloseMarkup, driverSheetRequested, fillDayClose, incidentDeskMarkup, mountIncidentDesk, renderDriverSheet } from './field.js'
 
 const app = document.querySelector('#app')
 const navOrder = ['dashboard', 'containers', 'sensors', 'routes', 'fleet', 'citizens', 'reporting', 'notifications', 'driver', 'cierre', 'analytics']
@@ -629,7 +629,7 @@ function getViewMarkup(view, data) {
       </section>
       ${incentivesBody()}
       <div class="panel" id="citizens-panel"><h3>Ciudadanos registrados</h3><div id="citizens-list">Cargando ciudadanos…</div></div>
-      <div class="panel" id="rewards-panel"><h3>Catálogo de puntos</h3><p class="form-hint">El ciudadano canjea con su celular. El premio descuenta puntos de verdad.</p><div id="rewards-list">Cargando catálogo…</div></div>
+      <div class="panel"><h3>Premios del ciudadano</h3><p class="form-hint">Quien dona reclama en su propia página, con el mismo celular. No se canjea desde este panel.</p><a class="chip" href="/premios">Abrir página de premios</a></div>
     `
   }
 
@@ -999,8 +999,6 @@ async function renderDashboard(selectedView = 'dashboard') {
       } catch (error) { showToast('No se pudo validar el QR. Comprueba el ID del ciudadano.', 'error') }
     })
 
-    if (app.querySelector('#rewards-list')) mountRewardCatalog(message => showToast(message, 'error'))
-
     if (selectedView === 'cierre') fillDayClose()
     if (selectedView === 'reporting') fetchIncidents().then(incidents => mountIncidentDesk(incidents.data, data.fleet, message => showToast(message, 'error'))).catch(error => showToast(error.message, 'error'))
     if (selectedView === 'sensors') syncSensorCycle().catch(error => showToast(error.message, 'error'))
@@ -1158,6 +1156,8 @@ if (donationCodeFromUrl()) {
   document.querySelector('#donation-form')?.addEventListener('donation-error', event => showToast(event.detail, 'error'))
 } else if (driverSheetRequested()) {
   renderDriverSheet(message => showToast(message, 'error'))
+} else if (rewardsPageRequested()) {
+  renderRewardsPage((message, type = 'success') => showToast(message, type))
 } else if (citizenPortalRequested()) {
   renderCitizenPortal((message, type) => showToast(message, type))
 } else {

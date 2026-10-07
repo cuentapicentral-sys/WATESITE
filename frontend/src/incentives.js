@@ -1,4 +1,4 @@
-import { createCitizen, fetchCitizens, submitRecyclingPhoto } from './api.js'
+import { createCitizen, fetchCitizens, fetchRewardCatalog, redeemCatalogReward, submitRecyclingPhoto } from './api.js'
 
 export const PHOTO_POINTS = 5
 const CITIZEN_KEY = 'wastewise.citizen'
@@ -28,6 +28,15 @@ export function donationCodeFromUrl() {
 
 export function donationLink(code) {
   return `${window.location.origin}/donar/${encodeURIComponent(code)}`
+}
+
+export function rewardsLink() {
+  return `${window.location.origin}/premios`
+}
+
+export function rewardsPageRequested() {
+  const path = window.location.pathname.replace(/\/+$/, '') || '/'
+  return path === '/premios' || path.endsWith('/premios') || new URLSearchParams(window.location.search).has('premios')
 }
 
 export function findRecyclingPoint(code) {
@@ -208,6 +217,7 @@ export function renderPublicDonation(code, onToast) {
           <h1>Donar en ${point.place}</h1>
           <p>Sube la foto del reciclaje. No hace falta entrar al panel ni pulsar otro botón. Cada foto suma ${PHOTO_POINTS} puntos.</p>
         </div>
+        <a class="secondary-btn" href="/premios">Reclamar mis premios</a>
       </header>
       <form class="panel donation-form" id="donation-form">
         <p class="form-hint" id="citizen-balance">${balance}</p>
@@ -223,5 +233,111 @@ export function renderPublicDonation(code, onToast) {
   bindDonationForm()
   document.querySelector('#donation-form')?.addEventListener('donation-saved', event => {
     onToast?.(`Listo: +${event.detail.earned_points} puntos. Total ${event.detail.total_points}`)
+  })
+}
+
+function escapeText(value) {
+  return String(value ?? '').replace(/[&<>"']/g, char => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[char]))
+}
+
+async function findDonor(phone) {
+  const normalized = normalizePhone(phone)
+  if (normalized.length < 7) throw new Error('Escribe el celular con el que donaste')
+  const existing = await fetchCitizens().catch(() => ({ data: [] }))
+  const match = (existing.data || []).find(citizen => String(citizen.phone || '') === normalized || String(citizen.name || '').includes(`#${normalized}`))
+  if (!match) throw new Error('No hay puntos con ese celular. Primero dona reciclaje.')
+  const citizen = {
+    id: match.id,
+    name: String(match.name || '').split(' #')[0],
+    phone: normalized,
+    points: match.points || 0,
+  }
+  saveCitizen(citizen)
+  return citizen
+}
+
+export async function renderRewardsPage(onToast) {
+  const app = document.querySelector('#app')
+  const stored = readCitizen()
+  app.innerHTML = `
+    <main class="public-donation">
+      <header class="public-donation-head">
+        <img class="brand-logo" src="/logo.png?v=2" alt="EcoUrbana" />
+        <div>
+          <p class="eyebrow">Puntos por reciclar</p>
+          <h1>Reclama tus premios</h1>
+          <p>Esta página es solo para quien dona. Usa el mismo celular de la foto y elige el premio. Los puntos se descuentan al momento.</p>
+        </div>
+      </header>
+      <form class="panel donation-form" id="rewards-lookup">
+        <p class="form-hint" id="rewards-balance">${stored ? `${escapeText(stored.name)} tiene ${stored.points || 0} puntos.` : 'Escribe el celular con el que enviaste la foto.'}</p>
+        <label>Celular<input name="phone" value="${escapeText(stored?.phone || '')}" inputmode="numeric" placeholder="3001234567" required /></label>
+        <button class="secondary-btn" type="submit">Ver mis puntos</button>
+      </form>
+      <section class="panel" id="rewards-catalog"><p class="form-hint">Cargando premios…</p></section>
+      <a class="chip" href="/donar/QR-RONDA">Donar otra foto · 5 puntos</a>
+    </main>
+  `
+  const catalogNode = app.querySelector('#rewards-catalog')
+  const balanceNode = app.querySelector('#rewards-balance')
+  const phoneInput = app.querySelector('#rewards-lookup').elements.phone
+  let catalog = []
+  let current = stored
+
+  const paint = () => {
+    const points = current?.points || 0
+    balanceNode.textContent = current
+      ? `${current.name} tiene ${points} puntos.`
+      : 'Escribe el celular con el que enviaste la foto.'
+    catalogNode.innerHTML = `<div class="catalog-grid">${catalog.map(item => {
+      const missing = Math.max(0, item.points_cost - points)
+      const ready = current && missing === 0
+      return `<article><strong>${escapeText(item.reward_name)}</strong><b>${item.points_cost} pts</b><small>${escapeText(item.detail)}</small><button class="chip" type="button" data-code="${escapeText(item.code)}" ${ready ? '' : 'disabled'}>${ready ? 'Reclamar' : current ? `Faltan ${missing}` : 'Reclamar'}</button></article>`
+    }).join('')}</div>`
+    catalogNode.querySelectorAll('[data-code]').forEach(button => {
+      button.addEventListener('click', async () => {
+        if (!current) {
+          onToast?.('Primero consulta tus puntos con el celular', 'error')
+          return
+        }
+        const prize = catalog.find(item => item.code === button.dataset.code)
+        if (!prize || !window.confirm(`¿Reclamar ${prize.reward_name} por ${prize.points_cost} puntos?`)) return
+        button.disabled = true
+        try {
+          const result = await redeemCatalogReward({ phone: current.phone, code: prize.code })
+          current = { ...current, points: result.points }
+          saveCitizen(current)
+          paint()
+          onToast?.(`${result.reward_name} reclamado. Quedan ${result.points} puntos.`)
+        } catch (error) {
+          button.disabled = false
+          onToast?.(error.message, 'error')
+        }
+      })
+    })
+  }
+
+  try {
+    catalog = (await fetchRewardCatalog()).data || []
+  } catch (error) {
+    catalogNode.innerHTML = `<p class="form-hint">${escapeText(error.message)}</p>`
+    return
+  }
+  if (stored?.phone) {
+    try {
+      current = await findDonor(stored.phone)
+    } catch {
+      current = stored
+    }
+  }
+  paint()
+  app.querySelector('#rewards-lookup').addEventListener('submit', async event => {
+    event.preventDefault()
+    try {
+      current = await findDonor(phoneInput.value)
+      paint()
+    } catch (error) {
+      onToast?.(error.message, 'error')
+    }
   })
 }
