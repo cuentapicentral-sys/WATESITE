@@ -53,23 +53,10 @@ function saveCitizen(citizen) {
   localStorage.setItem(CITIZEN_KEY, JSON.stringify(citizen))
 }
 
-export function incentivesBody(selectedCode = '') {
-  const citizen = readCitizen()
-  const point = selectedCode ? findRecyclingPoint(selectedCode) : null
-  const options = RECYCLING_POINTS.map(item => `<option value="${item.code}" ${item.code === point?.code ? 'selected' : ''}>${item.place} · ${item.zone}</option>`).join('')
+export function incentivesBody() {
   return `
     <section class="panel city-map-panel"><div class="panel-header"><h3>Puntos de reciclaje</h3><span class="live-pill"><i></i> Montería</span></div><div id="incentive-map" class="city-map" role="region" aria-label="Mapa de puntos de reciclaje en Montería"></div></section>
     <section class="qr-grid">${RECYCLING_POINTS.map(item => `<article class="qr-card" data-qr="${item.code}"><div class="qr-image" data-qr-target="${item.code}"></div><strong>${item.place}</strong><span>${item.zone}</span><small>Escanear abre la página de donación · ${PHOTO_POINTS} pts</small></article>`).join('')}</section>
-    <form class="panel donation-form" id="donation-form">
-      <h3>Donar reciclaje</h3>
-      <p class="form-hint" id="citizen-balance">${citizen ? `${citizen.name} tiene ${citizen.points || 0} puntos.` : 'Regístrate una vez. Cada foto suma 5 puntos.'}</p>
-      <label>Punto de reciclaje<select name="qr_code" required>${options}</select></label>
-      <label>Nombre<input name="name" value="${citizen?.name || ''}" placeholder="Ana López" required /></label>
-      <label>Celular<input name="phone" value="${citizen?.phone || ''}" inputmode="numeric" placeholder="3001234567" required /></label>
-      <label>Foto de la donación<input name="photo_file" type="file" accept="image/*" capture="environment" required /><input name="photo_url" type="hidden" /></label>
-      <div class="image-preview" id="donation-preview" hidden><img alt="Vista previa de la donación" /></div>
-      <button class="primary-btn" type="submit">Enviar foto y sumar ${PHOTO_POINTS} puntos</button>
-    </form>
   `
 }
 
@@ -109,7 +96,7 @@ function compressImage(file) {
   })
 }
 
-export function mountIncentives(selectedCode = '') {
+export function mountIncentives() {
   const mapNode = document.getElementById('incentive-map')
   if (mapNode && window.L) {
     if (window.wastewiseIncentiveMap) {
@@ -124,7 +111,6 @@ export function mountIncentives(selectedCode = '') {
     RECYCLING_POINTS.forEach(point => {
       const marker = window.L.marker([point.latitude, point.longitude]).addTo(map)
       marker.bindPopup(`<strong>${point.place}</strong><br>${point.zone}<br>${point.code}`)
-      marker.on('click', () => selectPoint(point.code))
     })
     window.wastewiseIncentiveMap = map
     setTimeout(() => map.invalidateSize(), 180)
@@ -132,13 +118,6 @@ export function mountIncentives(selectedCode = '') {
   document.querySelectorAll('[data-qr-target]').forEach(node => {
     paintQr(node, donationLink(node.dataset.qrTarget))
   })
-  bindDonationForm(selectedCode)
-}
-
-function selectPoint(code) {
-  const select = document.querySelector('#donation-form select[name="qr_code"]')
-  if (select) select.value = code
-  document.querySelector('#donation-form')?.scrollIntoView({ behavior: 'smooth', block: 'center' })
 }
 
 function normalizePhone(phone) {

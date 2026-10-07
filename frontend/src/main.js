@@ -618,7 +618,7 @@ function getViewMarkup(view, data) {
 
   if (view === 'citizens') {
     return `
-      ${pageIntro('Incentivos ciudadanos · Citizen Rewards Service :8104', 'Puntos por reciclar', 'Cada ubicación tiene un código QR. La persona se registra y cada foto de donación suma 5 puntos.', '<span class="live-pill"><i></i> 5 puntos por foto</span>')}
+      ${pageIntro('Incentivos ciudadanos · Citizen Rewards Service :8104', 'Puntos por reciclar', 'Cada ubicación tiene un código QR. Al escanearlo se abre la página de donación y cada foto suma 5 puntos.', '<span class="live-pill"><i></i> 5 puntos por foto</span>')}
       <section class="cards-grid">
         ${citizens.map(item => `
           <article class="info-card">
@@ -1004,14 +1004,7 @@ async function renderDashboard(selectedView = 'dashboard') {
     if (selectedView === 'cierre') fillDayClose()
     if (selectedView === 'reporting') fetchIncidents().then(incidents => mountIncidentDesk(incidents.data, data.fleet, message => showToast(message, 'error'))).catch(error => showToast(error.message, 'error'))
     if (selectedView === 'sensors') syncSensorCycle().catch(error => showToast(error.message, 'error'))
-    if (selectedView === 'citizens') {
-      mountIncentives()
-      app.querySelector('#donation-form')?.addEventListener('donation-saved', event => {
-        showToast(`Foto recibida: +${event.detail.earned_points} puntos. Total ${event.detail.total_points}`)
-        renderDashboard('citizens')
-      })
-      app.querySelector('#donation-form')?.addEventListener('donation-error', event => showToast(event.detail, 'error'))
-    }
+    if (selectedView === 'citizens') mountIncentives()
 
     const citizensList = app.querySelector('#citizens-list')
     if (citizensList) {
