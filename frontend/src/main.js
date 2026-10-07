@@ -4,6 +4,7 @@ import { citizenPortalRequested, renderCitizenPortal } from './citizen-portal.js
 import { getSession, loginUser, logoutUser, registerUser } from './auth.js'
 import { fetchDrivingRoute, pointAtDistance, TRUCK_SPEED_KMH } from './dijkstra.js'
 import { STREET_ROUTES } from './street-routes.js'
+import { adoptZoneRoutes, liveZonePath, servingZone, vehicleZone, zoneName } from './zone-routes.js'
 import { donationCodeFromUrl, incentivesBody, mountIncentives, renderPublicDonation } from './incentives.js'
 import { renderMunicipalAnalytics } from './analytics-view.js'
 import { clearFieldMaps, dayCloseMarkup, driverSheetRequested, fillDayClose, incidentDeskMarkup, mountIncidentDesk, mountRewardCatalog, renderDriverSheet } from './field.js'
@@ -416,7 +417,15 @@ function mountFleetMap(fleet, containers) {
     }).addTo(map).bindPopup(`${container.code} · ${container.fill_level}%`)
   })
   window.wastewiseFleetMap = map
-  animateTrucks(map, fleet, containers, (_vehicle, index) => streetRoute(index), 'fleet-live-list')
+  const lines = {}
+  const drawLine = zone => {
+    const path = liveZonePath(zone)
+    if (!lines[zone]) lines[zone] = window.L.polyline([], { color: '#0b7a45', weight: 5, opacity: 0.85 }).addTo(map)
+    lines[zone].setLatLngs(path.map(point => [point.lat, point.lng]))
+  }
+  fleet.forEach((vehicle, index) => drawLine(vehicleZone(vehicle, index)))
+  animateTrucks(map, fleet, containers, (vehicle, index) => liveZonePath(vehicleZone(vehicle, index)), 'fleet-live-list', false)
+  adoptZoneRoutes(fleet, containers.map(locateContainer), drawLine).catch(() => {})
 }
 
 function mountRouteMotion(fleet, containers, forcedPath) {
@@ -431,11 +440,15 @@ function mountRouteMotion(fleet, containers, forcedPath) {
     maxZoom: 19,
     attribution: '&copy; OpenStreetMap · calles de Montería',
   }).addTo(map)
-  const path = forcedPath?.length > 8 ? forcedPath : streetRoute(0)
-  if (path.length > 1) {
-    const line = window.L.polyline(path.map(point => [point.lat, point.lng]), { color: '#0b7a45', weight: 5, opacity: 0.85 }).addTo(map)
-    map.fitBounds(line.getBounds(), { padding: [28, 28], maxZoom: 14 })
+  const path = forcedPath?.length > 8 ? forcedPath : null
+  const lines = {}
+  const drawLine = zone => {
+    const current = path || liveZonePath(zone)
+    if (!lines[zone]) lines[zone] = window.L.polyline([], { color: '#0b7a45', weight: 5, opacity: 0.85 }).addTo(map)
+    lines[zone].setLatLngs(current.map(point => [point.lat, point.lng]))
+    if (current.length > 1) map.fitBounds(lines[zone].getBounds(), { padding: [28, 28], maxZoom: 14 })
   }
+  if (path) drawLine('ruta')
   containers.map(locateContainer).forEach(container => {
     window.L.circleMarker([container.latitude, container.longitude], {
       radius: 5,
@@ -445,17 +458,15 @@ function mountRouteMotion(fleet, containers, forcedPath) {
     }).addTo(map)
   })
   const trucks = fleet.filter(vehicleIsMoving)
-  const moving = trucks.length ? trucks : [{ id: 'Ruta Dijkstra', type: 'Camión compactador', state: 'en_ruta' }]
+  const moving = trucks.length ? trucks : [{ id: 'Ruta de zona', type: 'Camión compactador', state: 'en_ruta' }]
   window.wastewiseRouteMap = map
-  animateTrucks(map, moving, containers, () => path, 'routes-live-list', false)
-  if (!forcedPath) {
-    const urgent = containers.map(locateContainer).filter(container => Number(container.fill_level) >= 70).slice(0, 6)
-    const stops = [FLEET_DEPOT, ...(urgent.length ? urgent : FLEET_ROUTES[0]), FLEET_DEPOT]
-    fetchDrivingRoute(stops).then(streetPath => {
-      if (!document.getElementById('routes-map')) return
-      mountRouteMotion(fleet, containers, streetPath)
-    }).catch(() => {})
+  if (path) {
+    animateTrucks(map, moving, containers, () => path, 'routes-live-list', false)
+    return
   }
+  fleet.forEach((vehicle, index) => drawLine(vehicleZone(vehicle, index)))
+  animateTrucks(map, moving, containers, (vehicle, index) => liveZonePath(vehicleZone(vehicle, index)), 'routes-live-list', false)
+  adoptZoneRoutes(fleet, containers.map(locateContainer), drawLine).catch(() => {})
 }
 
 
@@ -1119,6 +1130,11 @@ async function renderDashboard(selectedView = 'dashboard') {
         }
         if (id) await updateContainer(id, payload)
         else await createContainer(payload)
+        const servedBy = servingZone(payload.zone, data.fleet || [])
+        const named = zoneName(payload.zone)
+        showToast(named && named !== servedBy
+          ? `No hay un camión fijo en ${named}. El de ${servedBy} pasará por ${payload.code}`
+          : `Los camiones de ${servedBy} ahora pasan por ${payload.code}`)
         renderDashboard('containers')
       })
       mountContainerMap(data.containers || [])

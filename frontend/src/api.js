@@ -181,6 +181,7 @@ export function submitRecyclingPhoto(payload) {
 }
 
 export async function createContainer(container) {
+  invalidateDashboard();
   const response = await fetch(`${API_BASE_URL}/supabase/containers`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
@@ -191,6 +192,7 @@ export async function createContainer(container) {
 }
 
 export async function updateContainer(id, container) {
+  invalidateDashboard();
   const response = await fetch(`${API_BASE_URL}/supabase/containers/${id}`, {
     method: 'PATCH',
     headers: { 'Content-Type': 'application/json' },
