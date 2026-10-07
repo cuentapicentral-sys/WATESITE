@@ -14,20 +14,31 @@ export const RECYCLING_POINTS = [
   { code: 'QR-AMPARO', place: 'El Amparo', zone: 'Oeste', latitude: 8.7416, longitude: -75.9068 },
 ]
 
+export function donationCodeFromLocation(location) {
+  const params = new URLSearchParams(location.search || '')
+  const query = params.get('donacion') || params.get('punto')
+  if (query) return query.toUpperCase()
+  const match = String(location.pathname || '').match(/\/donar\/([A-Za-z0-9-]+)/i)
+  return match ? match[1].toUpperCase() : null
+}
+
 export function donationCodeFromUrl() {
-  return new URLSearchParams(window.location.search).get('donacion')
+  return donationCodeFromLocation(window.location)
 }
 
 export function donationLink(code) {
-  const url = new URL(window.location.href)
-  url.search = ''
-  url.hash = ''
-  url.searchParams.set('donacion', code)
-  return url.toString()
+  return `${window.location.origin}/donar/${encodeURIComponent(code)}`
 }
 
 export function findRecyclingPoint(code) {
-  return RECYCLING_POINTS.find(point => point.code === String(code || '').toUpperCase()) || RECYCLING_POINTS[0]
+  const normalized = String(code || '').toUpperCase()
+  return RECYCLING_POINTS.find(point => point.code === normalized) || {
+    code: normalized || RECYCLING_POINTS[0].code,
+    place: normalized ? 'Punto de reciclaje' : RECYCLING_POINTS[0].place,
+    zone: 'Montería',
+    latitude: RECYCLING_POINTS[0].latitude,
+    longitude: RECYCLING_POINTS[0].longitude,
+  }
 }
 
 function readCitizen() {
@@ -48,7 +59,7 @@ export function incentivesBody(selectedCode = '') {
   const options = RECYCLING_POINTS.map(item => `<option value="${item.code}" ${item.code === point?.code ? 'selected' : ''}>${item.place} · ${item.zone}</option>`).join('')
   return `
     <section class="panel city-map-panel"><div class="panel-header"><h3>Puntos de reciclaje</h3><span class="live-pill"><i></i> Montería</span></div><div id="incentive-map" class="city-map" role="region" aria-label="Mapa de puntos de reciclaje en Montería"></div></section>
-    <section class="qr-grid">${RECYCLING_POINTS.map(item => `<article class="qr-card" data-qr="${item.code}"><div class="qr-image" data-qr-target="${item.code}"></div><strong>${item.place}</strong><span>${item.zone}</span><small>${item.code} · ${PHOTO_POINTS} pts por foto</small><button class="chip" type="button" data-choose-point="${item.code}">Donar aquí</button></article>`).join('')}</section>
+    <section class="qr-grid">${RECYCLING_POINTS.map(item => `<article class="qr-card" data-qr="${item.code}"><div class="qr-image" data-qr-target="${item.code}"></div><strong>${item.place}</strong><span>${item.zone}</span><small>Escanear abre la página de donación · ${PHOTO_POINTS} pts</small></article>`).join('')}</section>
     <form class="panel donation-form" id="donation-form">
       <h3>Donar reciclaje</h3>
       <p class="form-hint" id="citizen-balance">${citizen ? `${citizen.name} tiene ${citizen.points || 0} puntos.` : 'Regístrate una vez. Cada foto suma 5 puntos.'}</p>
@@ -120,9 +131,6 @@ export function mountIncentives(selectedCode = '') {
   }
   document.querySelectorAll('[data-qr-target]').forEach(node => {
     paintQr(node, donationLink(node.dataset.qrTarget))
-  })
-  document.querySelectorAll('[data-choose-point]').forEach(button => {
-    button.addEventListener('click', () => selectPoint(button.dataset.choosePoint))
   })
   bindDonationForm(selectedCode)
 }
@@ -207,14 +215,33 @@ export function bindDonationForm() {
 
 export function renderPublicDonation(code, onToast) {
   const point = findRecyclingPoint(code)
+  const citizen = readCitizen()
   const app = document.querySelector('#app')
+  const balance = citizen
+    ? `${citizen.name} tiene ${citizen.points || 0} puntos.`
+    : 'Escribe tu nombre y celular. Si ya donaste antes, se usan los mismos puntos.'
   app.innerHTML = `
     <main class="public-donation">
-      <header class="public-donation-head"><img class="brand-logo" src="/logo.png?v=2" alt="EcoUrbana" /><div><p class="eyebrow">Incentivos ciudadanos</p><h1>${point.place}</h1><p>Regístrate y envía una foto de tu donación. Cada foto suma ${PHOTO_POINTS} puntos.</p></div></header>
-      ${incentivesBody(point.code)}
+      <header class="public-donation-head">
+        <img class="brand-logo" src="/logo.png?v=2" alt="EcoUrbana" />
+        <div>
+          <p class="eyebrow">${point.zone} · ${point.code}</p>
+          <h1>Donar en ${point.place}</h1>
+          <p>Sube la foto del reciclaje. No hace falta entrar al panel ni pulsar otro botón. Cada foto suma ${PHOTO_POINTS} puntos.</p>
+        </div>
+      </header>
+      <form class="panel donation-form" id="donation-form">
+        <p class="form-hint" id="citizen-balance">${balance}</p>
+        <input name="qr_code" type="hidden" value="${point.code}" />
+        <label>Nombre<input name="name" value="${citizen?.name || ''}" placeholder="Ana López" required /></label>
+        <label>Celular<input name="phone" value="${citizen?.phone || ''}" inputmode="numeric" placeholder="3001234567" required /></label>
+        <label>Foto del reciclaje donado<input name="photo_file" type="file" accept="image/*" capture="environment" required /><input name="photo_url" type="hidden" /></label>
+        <div class="image-preview" id="donation-preview" hidden><img alt="Vista previa de la donación" /></div>
+        <button class="primary-btn" type="submit">Enviar foto y sumar ${PHOTO_POINTS} puntos</button>
+      </form>
     </main>
   `
-  mountIncentives(point.code)
+  bindDonationForm()
   document.querySelector('#donation-form')?.addEventListener('donation-saved', event => {
     onToast?.(`Listo: +${event.detail.earned_points} puntos. Total ${event.detail.total_points}`)
   })

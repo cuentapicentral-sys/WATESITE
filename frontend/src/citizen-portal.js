@@ -53,7 +53,7 @@ export function renderCitizenPortal(notify = () => {}) {
         </div>
       </header>
       <section class="portal-actions">
-        <a class="chip" href="?donacion=QR-RONDA">Donar reciclaje · 5 puntos</a>
+        <a class="chip" href="/donar/QR-RONDA">Donar reciclaje · 5 puntos</a>
         <a class="chip" href="/">Entrar como operador</a>
       </section>
       ${scheduleMarkup()}
