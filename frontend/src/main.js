@@ -59,6 +59,147 @@ function showToast(message, type = 'success') {
   }, 2600)
 }
 
+function buildTopbarShell() {
+  return `
+    <header class="topbar product-topbar">
+      <label class="global-search"><span>⌕</span><input placeholder="Buscar zonas, rutas o contenedores..." aria-label="Buscar en operaciones" /></label>
+      <div class="topbar-actions">
+        <button type="button" class="icon-btn topbar-dropdown-toggle" data-topbar-panel="notifications" aria-label="Ver notificaciones">♧<i></i></button>
+        <span class="topbar-divider"></span>
+        <div class="profile-mini topbar-dropdown-toggle" data-topbar-panel="profile" role="button" tabindex="0" aria-label="Abrir perfil del operador">
+          <span class="user-avatar">${getInitials(getSession().name)}</span>
+          <span><strong>${getSession().name}</strong><small>${getSession().role}</small></span>
+          <b>⌄</b>
+        </div>
+        <div id="topbar-panel" class="topbar-panel" hidden></div>
+      </div>
+    </header>
+  `
+}
+
+async function loadTopbarPanel(panelName) {
+  const panel = document.querySelector('#topbar-panel')
+  if (!panel) return
+
+  const closePanel = () => {
+    panel.hidden = true
+    panel.dataset.panel = ''
+  }
+
+  if (panelName === 'notifications') {
+    try {
+      const notifications = await fetchNotifications()
+      const items = notifications.data?.length ? notifications.data.slice(0, 4) : []
+      panel.innerHTML = `
+        <div class="topbar-panel-header">
+          <strong>Notificaciones</strong>
+          <button type="button" class="chip" data-topbar-close="notifications">Cerrar</button>
+        </div>
+        <div class="topbar-panel-body">
+          ${items.length ? items.map(item => `
+            <div class="topbar-alert-item">
+              <strong>${item.title}</strong>
+              <small>${item.description || 'Sin detalle adicional'}</small>
+              <span>${item.severity || 'media'}</span>
+            </div>
+          `).join('') : '<p class="topbar-empty">No hay alertas nuevas.</p>'}
+        </div>
+      `
+      panel.querySelector('[data-topbar-close="notifications"]')?.addEventListener('click', event => {
+        event.stopPropagation()
+        closePanel()
+      })
+    } catch (error) {
+      panel.innerHTML = `
+        <div class="topbar-panel-header"><strong>Notificaciones</strong></div>
+        <div class="topbar-panel-body"><p class="topbar-empty">${error.message}</p></div>
+      `
+    }
+    return
+  }
+
+  panel.innerHTML = `
+    <div class="topbar-panel-header">
+      <strong>Perfil</strong>
+      <button type="button" class="chip" data-topbar-close="profile">Cerrar</button>
+    </div>
+    <div class="topbar-panel-body profile-panel-body">
+      <div class="profile-panel-user">
+        <span class="user-avatar">${getInitials(getSession().name)}</span>
+        <div>
+          <strong>${getSession().name}</strong>
+          <small>${getSession().role}</small>
+        </div>
+      </div>
+      <button type="button" class="topbar-panel-action" data-action="profile-dashboard">Ver dashboard</button>
+      <button type="button" class="topbar-panel-action danger" id="logout-topbar">Cerrar sesión</button>
+    </div>
+  `
+
+  panel.querySelector('#logout-topbar')?.addEventListener('click', () => {
+    clearSensorCycleTimer()
+    clearMaps()
+    logoutUser()
+    renderAuth()
+  })
+
+  panel.querySelector('[data-topbar-close="profile"]')?.addEventListener('click', event => {
+    event.stopPropagation()
+    closePanel()
+  })
+
+  panel.querySelector('[data-action="profile-dashboard"]')?.addEventListener('click', () => {
+    panel.hidden = true
+    renderDashboard('dashboard')
+  })
+}
+
+function bindTopbarPanels() {
+  const panel = document.querySelector('#topbar-panel')
+  const toggles = document.querySelectorAll('.topbar-dropdown-toggle')
+
+  if (document.body.dataset.topbarListenerAttached !== 'true') {
+    document.body.dataset.topbarListenerAttached = 'true'
+    document.addEventListener('click', event => {
+      const target = event.target
+      if (!target || !(target instanceof Element)) return
+      const activePanel = document.querySelector('#topbar-panel')
+      if (!activePanel) return
+      if (!activePanel.contains(target) && !target.closest('.topbar-dropdown-toggle')) {
+        activePanel.hidden = true
+        activePanel.dataset.panel = ''
+      }
+    }, { once: false })
+  }
+
+  toggles.forEach(toggle => {
+    const closePanel = () => {
+      if (!panel) return
+      panel.hidden = true
+      panel.dataset.panel = ''
+    }
+
+    toggle.addEventListener('click', async event => {
+      event.stopPropagation()
+      const nextPanel = toggle.dataset.topbarPanel
+      if (!panel) return
+      const isActive = !panel.hidden && panel.dataset.panel === nextPanel
+      closePanel()
+      if (isActive) return
+      panel.dataset.panel = nextPanel
+      panel.hidden = false
+      await loadTopbarPanel(nextPanel)
+    })
+
+    toggle.addEventListener('keydown', event => {
+      if (event.key === 'Enter' || event.key === ' ') {
+        event.preventDefault()
+        toggle.click()
+      }
+    })
+  })
+}
+
 const incidentCategories = [
   'Contenedor desbordado',
   'Contenedor dañado',
@@ -203,6 +344,14 @@ function clearMaps() {
   window.wastewiseRouteMap = null
 }
 
+function containerTypeLabel(value) {
+  const normalized = String(value || 'general').trim().toLowerCase()
+  if (normalized === 'organica') return 'Orgánica'
+  if (normalized === 'reciclable') return 'Reciclable'
+  if (normalized === 'vidrio') return 'Vidrio'
+  return 'General'
+}
+
 function fillTone(level) {
   if (level >= 90) return 'red'
   if (level >= 75) return 'amber'
@@ -288,7 +437,7 @@ function mountContainerMap(containers) {
         iconAnchor: [15, 15],
       }),
     }).addTo(map)
-    marker.bindPopup(`<strong>${container.code}</strong><br>${container.place} · ${container.zone}<br>Llenado ${container.fill_level}%`)
+    marker.bindPopup(`<strong>${container.code}</strong><br>${container.place} · ${container.zone}<br>${containerTypeLabel(container.container_type || container.type)} · llenado ${container.fill_level}%`)
     marker.on('click', () => {
       const form = document.querySelector('#container-form')
       if (!form) return
@@ -495,7 +644,7 @@ function liveOperations(data) {
 
 function getViewMarkup(view, data) {
   const { stats, containers = [], zones, routes, alerts, kpis, fleet = fleetData, citizens = citizenData, reports = reportData } = data
-  const sectionTopbar = `<header class="topbar product-topbar"><label class="global-search"><span>⌕</span><input placeholder="Buscar zonas, rutas o contenedores..." aria-label="Buscar en operaciones" /></label><div class="topbar-actions"><button class="icon-btn" aria-label="Ver notificaciones">♧<i></i></button><span class="topbar-divider"></span><div class="profile-mini"><span class="user-avatar">${getInitials(getSession().name)}</span><span><strong>${getSession().name}</strong><small>${getSession().role}</small></span><b>⌄</b></div></div></header>`
+  const sectionTopbar = buildTopbarShell()
   const pageIntro = (eyebrow, title, subtitle, action = '') => `${sectionTopbar}<section class="section-header"><div><p class="eyebrow">${eyebrow}</p><h1>${title}</h1><p class="section-subtitle">${subtitle}</p></div>${action}</section>`
 
   if (view === 'sensors') return `
@@ -532,6 +681,12 @@ function getViewMarkup(view, data) {
         <input type="hidden" name="id" />
         <input name="code" placeholder="Código (ej. C-400)" required />
         <input name="zone" placeholder="Zona (Centro, Norte, Sur, Este, Oeste)" required />
+        <select name="container_type">
+          <option value="organica">Orgánica</option>
+          <option value="reciclable">Reciclable</option>
+          <option value="general">General</option>
+          <option value="vidrio">Vidrio</option>
+        </select>
         <input name="fill_level" type="number" min="0" max="100" placeholder="Llenado %" required />
         <select name="status">
           <option value="normal">Normal</option>
@@ -546,7 +701,7 @@ function getViewMarkup(view, data) {
       <section class="container-table panel"><div class="panel-header"><h3>Contenedores recientes</h3><button class="chip">Ver todos</button></div><div class="container-table-head"><span>ID</span><span>Ubicación</span><span>Estado</span><span>Última actualización</span></div>
         ${containers.map(container => `
           <article class="container-table-row">
-            <strong>▣ ${container.code}</strong><span>${container.zone}</span><span><i class="dot ${container.status === 'critical' ? 'red' : 'green'}"></i>${container.status === 'critical' ? 'En mantenimiento' : 'Disponible'}</span><time>08:${String(Math.min(59, 12 + (container.fill_level % 40))).padStart(2, '0')}</time>
+            <strong>▣ ${container.code}</strong><span>${container.zone}<small>${containerTypeLabel(container.container_type || container.type)}</small></span><span><i class="dot ${container.status === 'critical' ? 'red' : 'green'}"></i>${container.status === 'critical' ? 'En mantenimiento' : 'Disponible'}</span><time>08:${String(Math.min(59, 12 + (container.fill_level % 40))).padStart(2, '0')}</time>
             <div class="card-actions">
               <button class="chip collect-container" data-id="${container.id}" data-code="${container.code}" type="button">Vaciar</button>
               <button class="chip edit-container" data-container='${JSON.stringify(container)}'>Editar</button>
@@ -651,10 +806,7 @@ function getViewMarkup(view, data) {
 
   const ops = liveOperations(data)
   return `
-    <header class="topbar product-topbar">
-      <label class="global-search"><span>⌕</span><input placeholder="Buscar zonas, rutas o contenedores..." aria-label="Buscar en operaciones" /></label>
-      <div class="topbar-actions"><button class="icon-btn" aria-label="Ver notificaciones">♧<i></i></button><span class="topbar-divider"></span><div class="profile-mini"><span class="user-avatar">${getInitials(getSession().name)}</span><span><strong>${getSession().name}</strong><small>${getSession().role}</small></span><b>⌄</b></div></div>
-    </header>
+    ${buildTopbarShell()}
 
     <section class="welcome-layout">
       <div class="welcome-copy"><p class="eyebrow">Panel principal</p><h1>Gestión de residuos y<br />servicios urbanos</h1><p>Monitoreamos, optimizamos y conectamos la ciudad con un entorno más limpio y sostenible.</p></div>
@@ -684,7 +836,7 @@ async function renderDashboard(selectedView = 'dashboard') {
   clearMaps()
 
   try {
-    const data = await fetchDashboardData()
+    const data = await fetchDashboardData(true)
 
     const reuseShell = Boolean(app.querySelector('.dashboard-shell'))
     if (reuseShell) {
@@ -771,6 +923,8 @@ async function renderDashboard(selectedView = 'dashboard') {
         if (event.target === mobileNavOverlay) mobileNavOverlay.classList.remove('open')
       })
     }
+
+    bindTopbarPanels()
 
     if (!reuseShell) {
     const topbarExport = app.querySelector('.topbar-actions .secondary-btn')
@@ -1077,6 +1231,7 @@ async function renderDashboard(selectedView = 'dashboard') {
           form.elements.id.value = container.id
           form.elements.code.value = container.code
           form.elements.zone.value = container.zone
+          form.elements.container_type.value = container.container_type || container.type || 'general'
           form.elements.fill_level.value = container.fill_level
           form.elements.status.value = container.status === 'critical' ? 'critical' : 'normal'
           form.elements.latitude.value = Number(located.latitude).toFixed(6)
@@ -1114,6 +1269,7 @@ async function renderDashboard(selectedView = 'dashboard') {
         const payload = {
           code: formData.get('code'),
           zone: formData.get('zone'),
+          container_type: formData.get('container_type') || 'general',
           fill_level: Number(formData.get('fill_level')),
           status: formData.get('status'),
           latitude: draft.latitude,
@@ -1134,6 +1290,7 @@ async function renderDashboard(selectedView = 'dashboard') {
         updateContainer(container.id, {
           code: container.code,
           zone: container.zone,
+          container_type: container.container_type || container.type || 'general',
           fill_level: Number(container.fill_level) || 0,
           status: container.status || 'normal',
           latitude: located.latitude,

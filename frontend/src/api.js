@@ -120,6 +120,18 @@ export function fetchRewardCatalog() {
   return serviceRequest('citizens', '/rewards/catalog');
 }
 
+export function fetchDonations() {
+  return serviceRequest('citizens', '/donations');
+}
+
+export function reviewDonation(donationId, approved = true, meta = {}) {
+  invalidateDashboard();
+  return serviceRequest('citizens', `/donations/${encodeURIComponent(donationId)}/review`, {
+    method: 'POST',
+    body: JSON.stringify({ approved, ...meta }),
+  });
+}
+
 export function redeemCatalogReward(payload) {
   invalidateDashboard();
   return serviceRequest('citizens', '/rewards/redeem', { method: 'POST', body: JSON.stringify(payload) });

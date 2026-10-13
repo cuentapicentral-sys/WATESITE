@@ -6,6 +6,31 @@ from services.database import supabase
 from services.events import publish_event
 from services.operations import collected_kg, collection_status
 
+CONTAINER_TYPES = ("organica", "reciclable", "general", "vidrio")
+
+
+def normalize_container_type(value: str | None) -> str:
+    raw = (value or "").strip().lower().replace("-", "_")
+    mapping = {
+        "organico": "organica",
+        "organica": "organica",
+        "organicas": "organica",
+        "reciclado": "reciclable",
+        "reciclable": "reciclable",
+        "reciclables": "reciclable",
+        "papel": "reciclable",
+        "metal": "reciclable",
+        "plastico": "reciclable",
+        "general": "general",
+        "basura": "general",
+        "residuo": "general",
+        "residuos": "general",
+        "vidrio": "vidrio",
+        "cristal": "vidrio",
+    }
+    return mapping.get(raw, "general") if raw in mapping else "general"
+
+
 app = FastAPI(title="WasteWise Container Service", version="1.0.0")
 app.add_middleware(
     CORSMiddleware,
@@ -23,6 +48,11 @@ class ContainerPayload(BaseModel):
     longitude: float | None = None
     fill_level: int = Field(default=0, ge=0, le=100)
     status: str = Field(default="normal", pattern="^(normal|attention|critical)$")
+    container_type: str = Field(default="general", max_length=20)
+
+    @property
+    def normalized(self):
+        return {**self.model_dump(), "container_type": normalize_container_type(self.container_type)}
 
 
 @app.get("/health")
@@ -41,8 +71,9 @@ def list_containers():
 
 @app.post("/containers", status_code=201)
 def create_container(payload: ContainerPayload):
+    record = payload.normalized
     try:
-        response = supabase.table("containers").insert(payload.model_dump()).execute()
+        response = supabase.table("containers").insert(record).execute()
         return {"data": response.data[0]}
     except Exception as error:
         raise HTTPException(status_code=400, detail="No se pudo registrar el contenedor") from error

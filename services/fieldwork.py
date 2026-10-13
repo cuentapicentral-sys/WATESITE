@@ -46,6 +46,16 @@ def citizen_status(status: str | None, vehicle: str | None) -> str:
     return status or "reported"
 
 
+def route_eta_for(zone: str | None, container_count: int = 0, urgent: bool = False) -> str:
+    weights = {"Centro": 2, "Norte": 6, "Sur": 3, "Este": 4, "Oeste": 5}
+    minutes = 12 + max(0, container_count - 4) * 2 + weights.get(zone, 3)
+    if urgent:
+        minutes -= 6
+    if minutes < 10:
+        minutes = 10
+    return f"{minutes} min"
+
+
 def _today() -> str:
     return datetime.now(ZoneInfo("America/Bogota")).date().isoformat()
 

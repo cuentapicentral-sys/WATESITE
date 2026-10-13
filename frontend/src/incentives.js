@@ -188,7 +188,10 @@ export function bindDonationForm() {
       })
       const updated = { ...citizen, name: values.name.trim(), phone: values.phone.trim(), points: result.total_points }
       saveCitizen(updated)
-      form.querySelector('#citizen-balance').textContent = `${updated.name} ahora tiene ${updated.points} puntos.`
+      const reviewText = result.status === 'pending_review'
+        ? `${updated.name}: foto enviada y pendiente de revisión. Los ${PHOTO_POINTS} puntos se suman solo después de la aprobación del operador.`
+        : `${updated.name} ahora tiene ${updated.points} puntos.`
+      form.querySelector('#citizen-balance').textContent = reviewText
       form.elements.photo_file.value = ''
       photoInput.value = ''
       if (preview) preview.hidden = true
@@ -215,7 +218,7 @@ export function renderPublicDonation(code, onToast) {
         <div>
           <p class="eyebrow">${point.zone} · ${point.code}</p>
           <h1>Donar en ${point.place}</h1>
-          <p>Sube la foto del reciclaje. No hace falta entrar al panel ni pulsar otro botón. Cada foto suma ${PHOTO_POINTS} puntos.</p>
+          <p>Sube la foto del reciclaje. La donación entra en revisión y los ${PHOTO_POINTS} puntos se suman solo tras aprobación del operador.</p>
         </div>
         <a class="secondary-btn" href="/premios">Reclamar mis premios</a>
       </header>
@@ -226,12 +229,16 @@ export function renderPublicDonation(code, onToast) {
         <label>Celular<input name="phone" value="${citizen?.phone || ''}" inputmode="numeric" placeholder="3001234567" required /></label>
         <label>Foto del reciclaje donado<input name="photo_file" type="file" accept="image/*" capture="environment" required /><input name="photo_url" type="hidden" /></label>
         <div class="image-preview" id="donation-preview" hidden><img alt="Vista previa de la donación" /></div>
-        <button class="primary-btn" type="submit">Enviar foto y sumar ${PHOTO_POINTS} puntos</button>
+        <button class="primary-btn" type="submit">Enviar foto para revisión</button>
       </form>
     </main>
   `
   bindDonationForm()
   document.querySelector('#donation-form')?.addEventListener('donation-saved', event => {
+    if (event.detail.status === 'pending_review') {
+      onToast?.('Foto recibida. Está en revisión y se aprueba solo tras validación del operador.', 'info')
+      return
+    }
     onToast?.(`Listo: +${event.detail.earned_points} puntos. Total ${event.detail.total_points}`)
   })
 }

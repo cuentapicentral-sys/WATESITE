@@ -14,6 +14,7 @@ class ContainerPayload(BaseModel):
     longitude: float | None = None
     fill_level: int = Field(default=0, ge=0, le=100)
     status: str = Field(default="normal", min_length=1, max_length=30)
+    container_type: str = Field(default="general", min_length=1, max_length=30)
 
 
 class RegisterPayload(BaseModel):

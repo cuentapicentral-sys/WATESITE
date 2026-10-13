@@ -5,6 +5,8 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from backend.supabase_routes import router as supabase_router
 from backend.supabase_client import supabase
+from services.containers.main import normalize_container_type
+from services.fieldwork import route_eta_for
 from services.operations import operational_snapshot
 
 
@@ -54,36 +56,93 @@ def safe_supabase_query(table_name: str, select_fields: str, fallback):
 
 
 def build_dashboard_data():
+    containers = safe_supabase_query(
+        "containers",
+        "id,code,zone,fill_level,status,latitude,longitude",
+        [],
+    )
+    routes_data = safe_supabase_query(
+        "routes",
+        "route_code,area,eta,status",
+        [],
+    )
+    alerts_data = safe_supabase_query(
+        "alerts",
+        "title,description,severity,created_at",
+        [],
+    )
+    vehicles = safe_supabase_query(
+        "vehicles",
+        "plate,type,state,load_level",
+        [],
+    )
+    citizens = safe_supabase_query(
+        "citizens",
+        "name,points",
+        [],
+    )
+    rewards = safe_supabase_query("rewards", "id,status", [])
+    incidents = safe_supabase_query("citizen_incidents", "status,category,description", [])
+    type_counts = {"organica": 0, "reciclable": 0, "general": 0, "vidrio": 0}
+    for container in containers:
+        type_counts[normalize_container_type(container.get("container_type") or container.get("type"))] += 1
+
+    zones_map = {}
+    for container in containers:
+        zone = str(container.get("zone") or "Sin zona")
+        bucket = zones_map.setdefault(zone, {"fills": [], "status": "Normal"})
+        bucket["fills"].append(int(container.get("fill_level") or 0))
+        if str(container.get("status") or "").lower() in {"critical", "urgente", "alerta"}:
+            bucket["status"] = "Alerta"
+
+    zones = []
+    for zone, data in zones_map.items():
+        fills = data["fills"]
+        fill_value = round(sum(fills) / len(fills)) if fills else 0
+        zones.append({
+            "name": zone,
+            "fill": fill_value,
+            "trucks": max(1, len([vehicle for vehicle in vehicles if str(vehicle.get("state") or "").lower() in {"operativo", "en_ruta"}])) if vehicles else 1,
+            "status": data["status"],
+        })
+
+    route_entries = []
+    for route in routes_data:
+        area = route.get("area") or "General"
+        zone_containers = [item for item in containers if str(item.get("zone") or "") == str(area)]
+        eta = route.get("eta") or route_eta_for(area, len(zone_containers), str(route.get("status") or "").lower() == "urgent")
+        route_entries.append({
+            "route": route.get("route_code") or f"R-{len(route_entries) + 1:03d}",
+            "area": area,
+            "eta": eta,
+            "status": str(route.get("status") or "scheduled").replace("in_progress", "En progreso").replace("urgent", "Urgente").replace("scheduled", "Programada"),
+            "color": "red" if str(route.get("status") or "").lower() == "urgent" else "green" if str(route.get("status") or "").lower() == "in_progress" else "blue",
+        })
+
+    alerts = [
+        f"{alert.get('title') or 'Alerta'}: {alert.get('description') or 'Sin detalle'}"
+        for alert in alerts_data
+    ] or ["Sin alertas nuevas registradas en esta jornada."]
+
+    critical_count = sum(1 for item in containers if str(item.get("status") or "").lower() in {"critical", "urgente", "alerta"} or int(item.get("fill_level") or 0) >= 90)
+    total_points = sum(int(citizen.get("points") or 0) for citizen in citizens)
+    pending_rewards = sum(1 for reward in rewards if str(reward.get("status") or "").lower() in {"pending", "pending_review", "pending_delivery"})
+
     return {
         "stats": [
-            {"label": "Contenedores activos", "value": "1,284", "change": "+8.4%", "tone": "positive"},
-            {"label": "Reciclaje hoy", "value": "68.2%", "change": "+5.1%", "tone": "positive"},
-            {"label": "Rutas en curso", "value": "42", "change": "-3.2%", "tone": "neutral"},
-            {"label": "Alertas críticas", "value": "17", "change": "-12%", "tone": "negative"},
+            {"label": "Contenedores activos", "value": str(len(containers)), "change": "En vivo", "tone": "positive"},
+            {"label": "Puntos en circulación", "value": str(total_points), "change": "Ciudadanía", "tone": "positive"},
+            {"label": "Rutas en curso", "value": str(sum(1 for item in routes_data if str(item.get("status") or "").lower() == "in_progress")), "change": "Operación", "tone": "neutral"},
+            {"label": "Alertas críticas", "value": str(critical_count), "change": "Monitoreo", "tone": "negative"},
         ],
-        "zones": [
-            {"name": "Centro", "fill": 82, "trucks": 9, "status": "Alerta"},
-            {"name": "Norte", "fill": 64, "trucks": 7, "status": "Normal"},
-            {"name": "Sur", "fill": 89, "trucks": 10, "status": "Alerta"},
-            {"name": "Este", "fill": 54, "trucks": 6, "status": "Normal"},
-            {"name": "Oeste", "fill": 71, "trucks": 8, "status": "Atento"},
-        ],
-        "routes": [
-            {"route": "R-204", "area": "Centro", "eta": "08:40", "status": "En progreso", "color": "green"},
-            {"route": "R-118", "area": "Norte", "eta": "09:15", "status": "Programada", "color": "blue"},
-            {"route": "R-330", "area": "Sur", "eta": "09:45", "status": "Urgente", "color": "red"},
-            {"route": "R-077", "area": "Este", "eta": "10:10", "status": "En progreso", "color": "green"},
-        ],
-        "alerts": [
-            "Contenedor C-240 con nivel de llenado superior al 90%.",
-            "Ruta R-330 reprogramada por tráfico en Avenida Principal.",
-            "6 ciudadanos registrados en programa de reciclaje hoy.",
-            "Mantenimiento programado para 2 camiones de recolección.",
-        ],
+        "zones": zones,
+        "routes": route_entries,
+        "alerts": alerts,
+        "container_types": type_counts,
         "kpis": [
-            {"label": "Kg reciclados", "value": "18,420"},
-            {"label": "Coste por ruta", "value": "$1,240"},
-            {"label": "Tiempo medio", "value": "42 min"},
+            {"label": "Premios pendientes", "value": str(pending_rewards)},
+            {"label": "Incidencias abiertas", "value": str(sum(1 for item in incidents if str(item.get("status") or "").lower() in {"reported", "assigned"}))},
+            {"label": "Ciudadanos activos", "value": str(len(citizens))},
         ],
     }
 
@@ -118,116 +177,32 @@ def municipal_analytics():
 
 @app.get("/api/dashboard")
 def dashboard():
+    data = build_dashboard_data()
     containers = safe_supabase_query(
         "containers",
         "id,code,zone,fill_level,status,latitude,longitude",
-        [
-            {"id": 1, "code": "C-240", "zone": "Centro", "fill_level": 92, "status": "critical", "latitude": 8.7526, "longitude": -75.8812},
-            {"id": 2, "code": "C-155", "zone": "Norte", "fill_level": 64, "status": "normal", "latitude": 8.7784, "longitude": -75.8608},
-            {"id": 3, "code": "C-311", "zone": "Sur", "fill_level": 88, "status": "critical", "latitude": 8.7242, "longitude": -75.8874},
-            {"id": 4, "code": "C-178", "zone": "Este", "fill_level": 54, "status": "normal", "latitude": 8.7504, "longitude": -75.8518},
-        ],
+        [],
     )
     routes_data = safe_supabase_query(
         "routes",
         "route_code,area,eta,status",
-        [
-            {"route_code": "R-204", "area": "Centro", "eta": "08:40", "status": "in_progress"},
-            {"route_code": "R-118", "area": "Norte", "eta": "09:15", "status": "scheduled"},
-            {"route_code": "R-330", "area": "Sur", "eta": "09:45", "status": "urgent"},
-        ],
-    )
-    alerts_data = safe_supabase_query(
-        "alerts",
-        "title,description,severity",
-        [
-            {"title": "Contenedor crítico", "description": "Nivel de llenado por encima del 90%.", "severity": "high"},
-            {"title": "Ruta reprogramada", "description": "Tráfico en Avenida Principal.", "severity": "medium"},
-        ],
+        [],
     )
     vehicles = safe_supabase_query(
         "vehicles",
         "plate,type,state,load_level",
-        [
-            {"plate": "TR-01", "type": "Camión compactador", "state": "operativo", "load_level": 74},
-            {"plate": "TR-12", "type": "Vehículo de reciclaje", "state": "en_ruta", "load_level": 58},
-        ],
+        [],
     )
-    citizens = safe_supabase_query(
-        "citizens",
-        "name,points",
-        [{"name": "Ana", "points": 420}, {"name": "Luis", "points": 260}],
-    )
-    rewards = safe_supabase_query("rewards", "id", [{"id": 1}, {"id": 2}])
     incidents = safe_supabase_query("citizen_incidents", "status", [])
     operations = operational_snapshot(containers, routes_data, vehicles, incidents)
 
-    zones_by_name = {}
-    for container in containers:
-        zone = container["zone"]
-        zone_data = zones_by_name.setdefault(zone, {"fills": [], "trucks": 0, "status": "Normal"})
-        zone_data["fills"].append(container["fill_level"])
-        zone_data["status"] = "Alerta" if container["status"] == "critical" else "Normal"
-
-    zones = [
-        {
-            "name": zone,
-            "fill": round(sum(data["fills"]) / len(data["fills"])),
-            "trucks": data["trucks"],
-            "status": data["status"],
-        }
-        for zone, data in zones_by_name.items()
+    data["operations"] = operations
+    data["kpis"] = [
+        {"label": "Contenedores críticos", "value": str(operations["critical_containers"])},
+        {"label": "Kilos por recoger", "value": str(operations["pending_kg"])},
+        {"label": "Incidencias abiertas", "value": str(operations["open_incidents"])},
     ]
-    routes = [
-        {
-            "route": route["route_code"],
-            "area": route["area"],
-            "eta": route["eta"] or "Sin ETA",
-            "status": route["status"],
-            "color": "red" if route["status"] == "urgent" else "green" if route["status"] == "in_progress" else "blue",
-        }
-        for route in routes_data
-    ]
-    alerts = [
-        f"{alert['title']}: {alert['description']}"
-        for alert in alerts_data
-    ]
-    fleet = [
-        {"id": vehicle["plate"], "type": vehicle["type"], "state": vehicle["state"], "load": f"{vehicle['load_level']}%"}
-        for vehicle in vehicles
-    ]
-    citizen_summary = [
-        {"label": "Participación ciudadana", "value": str(len(citizens))},
-        {"label": "Puntos acumulados", "value": str(sum(citizen["points"] for citizen in citizens))},
-        {"label": "Recompensas canjeadas", "value": str(len(rewards))},
-    ]
-    reports = [
-        {"label": "Contenedores registrados", "value": str(len(containers))},
-        {"label": "Vehículos registrados", "value": str(len(vehicles))},
-        {"label": "Ciudadanos registrados", "value": str(len(citizens))},
-    ]
-
-    return {
-        "stats": [
-            {"label": "Contenedores activos", "value": str(len(containers)), "change": "Supabase", "tone": "positive"},
-            {"label": "Zonas supervisadas", "value": str(len(zones)), "change": "En vivo", "tone": "positive"},
-            {"label": "Rutas en curso", "value": str(sum(route["status"] == "in_progress" for route in routes_data)), "change": "Supabase", "tone": "neutral"},
-            {"label": "Alertas críticas", "value": str(sum(alert["severity"] == "high" for alert in alerts_data)), "change": "En vivo", "tone": "negative"},
-        ],
-        "containers": containers,
-        "zones": zones,
-        "routes": routes,
-        "alerts": alerts,
-        "fleet": fleet,
-        "citizens": citizen_summary,
-        "reports": reports,
-        "kpis": [
-            {"label": "Contenedores críticos", "value": str(operations["critical_containers"])},
-            {"label": "Kilos por recoger", "value": str(operations["pending_kg"])},
-            {"label": "Incidencias abiertas", "value": str(operations["open_incidents"])},
-        ],
-        "operations": operations,
-    }
+    return data
 
 
 @app.get("/api/containers")
