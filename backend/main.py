@@ -135,6 +135,7 @@ def build_dashboard_data():
             {"label": "Rutas en curso", "value": str(sum(1 for item in routes_data if str(item.get("status") or "").lower() == "in_progress")), "change": "Operación", "tone": "neutral"},
             {"label": "Alertas críticas", "value": str(critical_count), "change": "Monitoreo", "tone": "negative"},
         ],
+        "containers": containers,
         "zones": zones,
         "routes": route_entries,
         "alerts": alerts,
