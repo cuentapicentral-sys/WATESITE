@@ -105,3 +105,12 @@ def test_dashboard_routes_include_assigned_vehicle():
 
     assert dashboard["routes"][0]["vehicle_plate"] == "TR-88"
     assert dashboard["routes"][0]["status_code"] == "in_progress"
+
+
+def test_dashboard_has_no_fabricated_notifications_when_alert_table_is_empty():
+    from backend import main as backend_main
+
+    with patch.object(backend_main, "safe_supabase_query", return_value=[]):
+        dashboard = backend_main.build_dashboard_data()
+
+    assert dashboard["alerts"] == []

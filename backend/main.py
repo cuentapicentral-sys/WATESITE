@@ -133,7 +133,7 @@ def build_dashboard_data():
     alerts = [
         f"{alert.get('title') or 'Alerta'}: {alert.get('description') or 'Sin detalle'}"
         for alert in alerts_data
-    ] or ["Sin alertas nuevas registradas en esta jornada."]
+    ]
 
     critical_count = sum(1 for item in containers if str(item.get("status") or "").lower() in {"critical", "urgente", "alerta"} or int(item.get("fill_level") or 0) >= 90)
     total_points = sum(int(citizen.get("points") or 0) for citizen in citizens)

@@ -929,6 +929,31 @@ async function renderDashboard(selectedView = 'dashboard') {
 
     }
 
+    if (selectedView === 'dashboard') {
+      const notificationCard = app.querySelector('.shortcut-card[data-view="notifications"]')
+      const alertMessages = data.alerts || []
+      if (notificationCard) {
+        const criticalCount = alertMessages.filter(message => /cr[ií]tic|desbord/i.test(message)).length
+        const total = notificationCard.querySelector('strong')
+        if (total) total.textContent = String(alertMessages.length)
+        const summary = notificationCard.querySelector('small')
+        if (summary) {
+          summary.replaceChildren(document.createTextNode('Notificaciones '))
+          const badge = document.createElement('b')
+          badge.className = 'critical-tag'
+          badge.textContent = `${criticalCount} críticas`
+          summary.append(badge)
+        }
+        const preview = notificationCard.querySelector('.shortcut-lines')
+        if (preview) {
+          preview.replaceChildren()
+          const item = document.createElement('em')
+          item.textContent = alertMessages.length ? `${alertMessages.length} registradas` : 'Sin notificaciones nuevas'
+          preview.append(item)
+        }
+      }
+    }
+
     const mobileNavOverlay = app.querySelector('#mobile-nav-overlay')
     const mobileMenuToggle = app.querySelector('.mobile-menu-toggle')
     const closeMobileMenu = app.querySelector('#close-mobile-menu')
@@ -1022,7 +1047,7 @@ async function renderDashboard(selectedView = 'dashboard') {
       const values = Object.fromEntries(new FormData(event.currentTarget))
       try {
         const result = await ingestSensorReading({ container_id: values.container_id, fill_level: Number(values.fill_level) })
-        showToast(result.published ? 'Lectura recibida: alerta crítica publicada' : 'Lectura del sensor procesada')
+        showToast(result.notification ? `${result.notification.title}: ${values.fill_level}%` : 'Lectura del sensor procesada')
         renderDashboard('sensors')
       } catch (error) { showToast(error.message, 'error') }
     })
