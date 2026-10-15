@@ -84,3 +84,24 @@ def test_routes_select_only_an_available_compatible_vehicle():
 
     assert chosen["plate"] == "TR-88"
     assert select_available_vehicle(vehicles, {"busy", "available"}) is None
+
+
+def test_dashboard_routes_include_assigned_vehicle():
+    from backend import main as backend_main
+
+    routes = [{
+        "route_code": "OPT-001",
+        "area": "Centro",
+        "status": "in_progress",
+        "vehicle_id": "vehicle-1",
+        "vehicle_plate": "TR-88",
+    }]
+
+    def query(table_name, _select_fields, _fallback):
+        return routes if table_name == "routes" else []
+
+    with patch.object(backend_main, "safe_supabase_query", side_effect=query):
+        dashboard = backend_main.build_dashboard_data()
+
+    assert dashboard["routes"][0]["vehicle_plate"] == "TR-88"
+    assert dashboard["routes"][0]["status_code"] == "in_progress"

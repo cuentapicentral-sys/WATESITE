@@ -198,7 +198,7 @@ def dashboard():
     )
     routes_data = safe_supabase_query(
         "routes",
-        "route_code,area,eta,status",
+        "route_code,area,eta,status,vehicle_id,vehicle_plate",
         [],
     )
     vehicles = data["fleet"]
