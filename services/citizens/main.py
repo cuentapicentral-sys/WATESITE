@@ -123,15 +123,17 @@ def submit_donation(payload: DonationPayload):
         "status": "pending_review",
         "approved": False,
         "earned_points": 0,
+        "points_awarded": 0,
         "place": point["place"],
         "reviewer": None,
     }
     try:
-        supabase.table("citizen_donations").insert(donation).execute()
-    except Exception:
-        pass
+        saved = supabase.table("recycling_donations").insert(donation).execute().data[0]
+    except Exception as error:
+        raise HTTPException(status_code=502, detail="No se pudo guardar la foto para revisión") from error
     publish_event("recycling.submitted", {"citizen_id": payload.citizen_id, "qr_code": payload.qr_code, "place": point["place"], "status": "pending_review"}, "recycling.submitted")
     return {
+        "donation_id": saved["id"],
         "status": "pending_review",
         "qr_code": point["code"],
         "place": point["place"],
@@ -144,27 +146,23 @@ def submit_donation(payload: DonationPayload):
 @app.post("/donations/{donation_id}/review")
 def review_donation(donation_id: str, payload: DonationReviewPayload):
     try:
-        donation = supabase.table("citizen_donations").select("*").eq("id", donation_id).single().execute().data
+        result = supabase.rpc("review_recycling_donation", {
+            "p_donation_id": donation_id,
+            "p_approved": payload.approved,
+            "p_reviewer": payload.reviewer,
+            "p_comment": payload.comment,
+            "p_points": PHOTO_POINTS,
+        }).execute().data
     except Exception as error:
+        message = str(error)
+        if "donation_not_found" in message:
+            raise HTTPException(status_code=404, detail="No encontramos esa donación") from error
+        if "donation_already_reviewed" in message:
+            raise HTTPException(status_code=409, detail="Esta foto ya fue revisada") from error
+        if "donation_citizen_not_found" in message:
+            raise HTTPException(status_code=404, detail="No se encuentra el ciudadano de la donación") from error
         raise HTTPException(status_code=502, detail="No se pudo consultar la donación para revisar") from error
-    if not donation:
-        raise HTTPException(status_code=404, detail="No encontramos esa donación")
-    if payload.approved:
-        citizen = supabase.table("citizens").select("*").eq("id", donation["citizen_id"]).single().execute().data
-        if not citizen:
-            raise HTTPException(status_code=404, detail="No se encuentra el ciudadano de la donación")
-        updated_points = points_after_photo(int(citizen.get("points") or 0))
-        supabase.table("citizens").update({"points": updated_points}).eq("id", citizen["id"]).execute()
-        donation_status = "approved"
-        result = {"status": donation_status, "approved": True, "earned_points": PHOTO_POINTS, "total_points": updated_points}
-    else:
-        donation_status = "rejected"
-        result = {"status": donation_status, "approved": False, "earned_points": 0, "total_points": int((supabase.table("citizens").select("points").eq("id", donation["citizen_id"]).single().execute().data or {}).get("points") or 0)}
-    try:
-        supabase.table("citizen_donations").update({"status": donation_status, "approved": payload.approved, "reviewer": payload.reviewer, "comment": payload.comment}).eq("id", donation_id).execute()
-    except Exception:
-        pass
-    publish_event("recycling.reviewed", {"donation_id": donation_id, "approved": payload.approved, "citizen_id": donation["citizen_id"]}, "recycling.reviewed")
+    publish_event("recycling.reviewed", {"donation_id": donation_id, "approved": payload.approved}, "recycling.reviewed")
     return result
 
 
@@ -186,7 +184,9 @@ def reward_catalog():
 @app.get("/donations")
 def list_donations():
     try:
-        response = supabase.table("citizen_donations").select("*").order("created_at", desc=True).execute()
+        response = supabase.table("recycling_donations").select(
+            "id,citizen_id,qr_code,place,photo_url,points_awarded,status,approved,earned_points,reviewer,comment,created_at"
+        ).order("created_at", desc=True).execute()
         return {"data": response.data}
     except Exception as error:
         raise HTTPException(status_code=502, detail="No se pudieron consultar las donaciones") from error

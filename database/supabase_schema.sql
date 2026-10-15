@@ -103,9 +103,103 @@ create table if not exists public.recycling_donations (
   qr_code text not null,
   place text not null,
   photo_url text,
-  points_awarded integer not null default 5,
+  points_awarded integer not null default 0,
+  status text not null default 'pending_review',
+  approved boolean not null default false,
+  earned_points integer not null default 0,
+  reviewer text,
+  comment text,
   created_at timestamptz default now()
 );
+
+alter table public.recycling_donations add column if not exists status text;
+alter table public.recycling_donations add column if not exists approved boolean;
+alter table public.recycling_donations add column if not exists earned_points integer;
+alter table public.recycling_donations add column if not exists reviewer text;
+alter table public.recycling_donations add column if not exists comment text;
+
+update public.recycling_donations
+set status = coalesce(status, case when coalesce(points_awarded, 0) > 0 then 'approved' else 'pending_review' end),
+    approved = coalesce(approved, coalesce(points_awarded, 0) > 0),
+    earned_points = coalesce(earned_points, case when coalesce(points_awarded, 0) > 0 then points_awarded else 0 end)
+where status is null or approved is null or earned_points is null;
+
+alter table public.recycling_donations alter column points_awarded set default 0;
+alter table public.recycling_donations alter column status set default 'pending_review';
+alter table public.recycling_donations alter column status set not null;
+alter table public.recycling_donations alter column approved set default false;
+alter table public.recycling_donations alter column approved set not null;
+alter table public.recycling_donations alter column earned_points set default 0;
+alter table public.recycling_donations alter column earned_points set not null;
+alter table public.recycling_donations enable row level security;
+
+create or replace function public.review_recycling_donation(
+  p_donation_id uuid,
+  p_approved boolean,
+  p_reviewer text default null,
+  p_comment text default null,
+  p_points integer default 5
+)
+returns jsonb
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  donation_row public.recycling_donations%rowtype;
+  current_points integer := 0;
+  next_status text;
+begin
+  select * into donation_row
+  from public.recycling_donations
+  where id = p_donation_id
+  for update;
+
+  if not found then
+    raise exception using errcode = 'P0002', message = 'donation_not_found';
+  end if;
+
+  if donation_row.status <> 'pending_review' then
+    raise exception using errcode = 'P0001', message = 'donation_already_reviewed';
+  end if;
+
+  if p_approved then
+    update public.citizens
+    set points = coalesce(points, 0) + p_points
+    where id = donation_row.citizen_id
+    returning points into current_points;
+
+    if not found then
+      raise exception using errcode = 'P0002', message = 'donation_citizen_not_found';
+    end if;
+    next_status := 'approved';
+  else
+    select coalesce(points, 0) into current_points
+    from public.citizens
+    where id = donation_row.citizen_id;
+    next_status := 'rejected';
+  end if;
+
+  update public.recycling_donations
+  set status = next_status,
+      approved = p_approved,
+      points_awarded = case when p_approved then p_points else 0 end,
+      earned_points = case when p_approved then p_points else 0 end,
+      reviewer = p_reviewer,
+      comment = p_comment
+  where id = p_donation_id;
+
+  return jsonb_build_object(
+    'status', next_status,
+    'approved', p_approved,
+    'earned_points', case when p_approved then p_points else 0 end,
+    'total_points', current_points
+  );
+end;
+$$;
+
+revoke all on function public.review_recycling_donation(uuid, boolean, text, text, integer) from public;
+grant execute on function public.review_recycling_donation(uuid, boolean, text, text, integer) to service_role;
 
 create table if not exists public.citizen_incidents (
   id uuid primary key default gen_random_uuid(),

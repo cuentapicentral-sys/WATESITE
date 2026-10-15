@@ -498,6 +498,55 @@ button {
   font-size: 1.15rem;
 }
 
+.donation-review-panel { margin: 20px 0; }
+.donation-review-panel .panel-header { align-items: flex-start; }
+.donation-review-panel .panel-header h3 { margin-bottom: 5px; }
+.donation-review-filters { display: flex; gap: 6px; margin: 0 0 16px; padding: 4px; width: fit-content; border-radius: 9px; background: #edf4f0; }
+.donation-review-filters button { display: flex; align-items: center; gap: 7px; border: 0; border-radius: 7px; padding: 8px 11px; color: #5e766a; background: transparent; font: inherit; font-size: .72rem; font-weight: 700; cursor: pointer; }
+.donation-review-filters button.active { color: #155c3e; background: white; box-shadow: 0 1px 4px rgba(17, 59, 45, .1); }
+.donation-review-filters button span { min-width: 20px; padding: 2px 5px; border-radius: 99px; color: #155c3e; background: #e4f2e9; text-align: center; font-size: .62rem; }
+.donation-review-list { display: grid; gap: 12px; }
+.donation-review-card { display: grid; grid-template-columns: minmax(150px, 220px) minmax(0, 1fr); gap: 16px; overflow: hidden; border: 1px solid #e1ebe5; border-radius: 12px; background: #fff; transition: opacity 160ms ease; }
+.donation-review-card.is-reviewing { opacity: .55; }
+.donation-review-photo { position: relative; display: grid; place-items: center; min-height: 170px; padding: 0; overflow: hidden; border: 0; background: #eaf1ed; color: #61766b; cursor: zoom-in; }
+.donation-review-photo img { width: 100%; height: 100%; min-height: 170px; max-height: 210px; object-fit: cover; }
+.donation-review-photo.missing { cursor: default; font-size: .75rem; }
+.photo-zoom-mark { position: absolute; right: 9px; bottom: 9px; padding: 5px 8px; border: 1px solid rgba(255,255,255,.3); border-radius: 6px; color: white; background: rgba(13,39,28,.72); font-size: .64rem; font-weight: 700; }
+.donation-review-content { display: grid; align-content: start; gap: 8px; min-width: 0; padding: 13px 15px 14px 0; }
+.donation-review-topline { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.donation-review-topline time { color: var(--muted); font-size: .64rem; }
+.donation-status { width: fit-content; padding: 4px 8px; border-radius: 99px; font-size: .62rem; font-weight: 800; }
+.donation-status.pending { color: #95600c; background: #fff4d9; }
+.donation-status.approved { color: #176942; background: #e4f4e9; }
+.donation-status.rejected { color: #a23b42; background: #ffebec; }
+.donation-review-content h4 { margin: 0; color: var(--text); font-size: .95rem; }
+.donation-review-content > p { margin: 0; color: var(--muted); font-size: .68rem; overflow-wrap: anywhere; }
+.donation-review-comment { display: grid; gap: 5px; margin-top: 2px; color: var(--muted); font-size: .66rem; font-weight: 700; }
+.donation-review-comment textarea { width: 100%; min-height: 54px; resize: vertical; border: 1px solid var(--border); border-radius: 8px; padding: 8px 10px; color: var(--text); background: #fbfdfb; font: inherit; font-weight: 400; }
+.donation-review-actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 2px; }
+.donation-review-actions .primary-btn, .donation-review-actions .secondary-btn { padding: 8px 11px; border-radius: 8px; font-size: .68rem; }
+.donation-review-actions .secondary-btn { box-shadow: none; }
+.donation-review-result { color: var(--muted); font-size: .7rem; }
+.donation-review-empty, .donation-review-error { display: grid; justify-items: center; gap: 7px; padding: 28px 16px; border: 1px dashed #d7e5dc; border-radius: 10px; color: var(--muted); text-align: center; }
+.donation-review-empty span { display: grid; place-items: center; width: 30px; height: 30px; border-radius: 50%; color: #1a754a; background: #e4f4e9; }
+.donation-review-empty strong { color: var(--text); font-size: .78rem; }
+.donation-review-empty small { font-size: .66rem; }
+.donation-review-error { color: #a23b42; background: #fff8f8; font-size: .72rem; }
+.donation-photo-dialog { width: min(900px, calc(100vw - 32px)); max-width: none; max-height: calc(100dvh - 32px); padding: 12px; border: 1px solid rgba(17, 59, 45, .15); border-radius: 12px; background: #fff; box-shadow: 0 24px 80px rgba(0,0,0,.28); }
+.donation-photo-dialog::backdrop { background: rgba(8, 24, 17, .72); }
+.donation-photo-dialog-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 0 0 10px; color: var(--text); font-size: .78rem; }
+.donation-photo-dialog > img { display: block; max-width: 100%; max-height: calc(100dvh - 95px); margin: 0 auto; object-fit: contain; }
+
+@media (max-width: 640px) {
+  .donation-review-panel .panel-header { flex-direction: column; }
+  .donation-review-filters { width: 100%; }
+  .donation-review-filters button { flex: 1; justify-content: center; }
+  .donation-review-card { grid-template-columns: 1fr; }
+  .donation-review-photo, .donation-review-photo img { min-height: 220px; max-height: 280px; }
+  .donation-review-content { padding: 12px; }
+  .donation-review-actions > button { flex: 1; }
+}
+
 .chip {
   background: #f1f6f3;
   color: #2d4b3d;

@@ -1,5 +1,5 @@
 import './style.css'
-import { collectContainer, createCitizen, createContainer, deleteContainer, fetchCitizens, fetchDashboardData, fetchFleetVehicles, fetchIncidents, fetchMunicipalAnalytics, fetchNotifications, fetchRewards, fetchServiceData, ingestSensorReading, optimizeRoute, publishNotification, redeemReward, registerQrScan, registerVehicle, reportIncident, syncSensorCycle, updateContainer, updateIncidentStatus } from './api.js'
+import { collectContainer, createCitizen, createContainer, deleteContainer, fetchCitizens, fetchDashboardData, fetchDonations, fetchFleetVehicles, fetchIncidents, fetchMunicipalAnalytics, fetchNotifications, fetchRewards, fetchServiceData, ingestSensorReading, optimizeRoute, publishNotification, redeemReward, registerQrScan, registerVehicle, reportIncident, reviewDonation, syncSensorCycle, updateContainer, updateIncidentStatus } from './api.js'
 import { citizenPortalRequested, renderCitizenPortal } from './citizen-portal.js'
 import { getSession, loginUser, logoutUser, registerUser } from './auth.js'
 import { fetchDrivingRoute, pointAtDistance, TRUCK_SPEED_KMH } from './dijkstra.js'
@@ -41,6 +41,15 @@ const reportData = [
 
 function getInitials(name = 'WW') {
   return name.split(' ').map(part => part[0]).join('').slice(0, 2).toUpperCase()
+}
+
+function escapeHtml(value) {
+  return String(value ?? '').replace(/[&<>"']/g, character => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[character])
+}
+
+function safeDonationImage(value) {
+  const source = String(value || '')
+  return /^data:image\/(?:jpeg|png|webp|gif);base64,/i.test(source) || /^https:\/\//i.test(source) ? source : ''
 }
 
 function showToast(message, type = 'success') {
@@ -783,6 +792,21 @@ function getViewMarkup(view, data) {
         `).join('')}
       </section>
       ${incentivesBody()}
+      <section class="panel donation-review-panel" id="donation-review-panel">
+        <div class="panel-header">
+          <div><h3>Revisión de fotos</h3><p class="form-hint">Revisa la evidencia antes de acreditar los 5 puntos.</p></div>
+          <button class="chip" id="refresh-donations" type="button">Actualizar</button>
+        </div>
+        <div class="donation-review-filters" role="group" aria-label="Filtrar donaciones">
+          <button class="active" type="button" data-donation-filter="pending" aria-pressed="true">Pendientes <span id="pending-donation-count">0</span></button>
+          <button type="button" data-donation-filter="reviewed" aria-pressed="false">Revisadas</button>
+        </div>
+        <div class="donation-review-list" id="donations-list" aria-live="polite">Cargando fotos…</div>
+      </section>
+      <dialog class="donation-photo-dialog" id="donation-photo-dialog" aria-label="Foto de donación">
+        <div class="donation-photo-dialog-head"><strong>Foto enviada</strong><button class="chip" type="button" data-close-donation-photo>Cerrar</button></div>
+        <img id="donation-photo-full" alt="Foto completa del reciclaje donado" />
+      </dialog>
       <div class="panel" id="citizens-panel"><h3>Ciudadanos registrados</h3><div id="citizens-list">Cargando ciudadanos…</div></div>
       <div class="panel"><h3>Premios del ciudadano</h3><p class="form-hint">Quien dona reclama en su propia página, con el mismo celular. No se canjea desde este panel.</p><a class="chip" href="/premios">Abrir página de premios</a></div>
     `
@@ -1157,6 +1181,108 @@ async function renderDashboard(selectedView = 'dashboard') {
     if (selectedView === 'reporting') fetchIncidents().then(incidents => mountIncidentDesk(incidents.data, data.fleet, message => showToast(message, 'error'))).catch(error => showToast(error.message, 'error'))
     if (selectedView === 'sensors') syncSensorCycle().catch(error => showToast(error.message, 'error'))
     if (selectedView === 'citizens') mountIncentives()
+
+    const donationsList = app.querySelector('#donations-list')
+    if (donationsList) {
+      const photoDialog = app.querySelector('#donation-photo-dialog')
+      const fullPhoto = app.querySelector('#donation-photo-full')
+      const pendingCount = app.querySelector('#pending-donation-count')
+      let donations = []
+      let filter = 'pending'
+
+      const renderDonations = () => {
+        const pending = donations.filter(donation => donation.status === 'pending_review')
+        pendingCount.textContent = String(pending.length)
+        const visible = filter === 'pending' ? pending : donations.filter(donation => donation.status !== 'pending_review')
+        if (!visible.length) {
+          donationsList.innerHTML = `<div class="donation-review-empty"><span>${filter === 'pending' ? '✓' : '—'}</span><strong>${filter === 'pending' ? 'Todo revisado' : 'Todavía no hay fotos revisadas'}</strong><small>${filter === 'pending' ? 'Las nuevas donaciones aparecerán aquí.' : 'Las fotos aprobadas o rechazadas aparecerán aquí.'}</small></div>`
+          return
+        }
+
+        donationsList.innerHTML = visible.map(donation => {
+          const pendingReview = donation.status === 'pending_review'
+          const image = safeDonationImage(donation.photo_url)
+          const statusLabel = donation.status === 'approved' ? 'Aprobada' : donation.status === 'rejected' ? 'Rechazada' : 'Pendiente'
+          const date = donation.created_at ? new Date(donation.created_at).toLocaleString('es-CO', { dateStyle: 'medium', timeStyle: 'short' }) : 'Fecha no disponible'
+          return `
+            <article class="donation-review-card" data-donation-id="${escapeHtml(donation.id)}">
+              <button class="donation-review-photo ${image ? '' : 'missing'}" type="button" data-photo-id="${escapeHtml(donation.id)}" aria-label="Ampliar foto de ${escapeHtml(donation.place || donation.qr_code)}">
+                ${image ? `<img src="${escapeHtml(image)}" alt="Reciclaje donado en ${escapeHtml(donation.place || donation.qr_code)}" loading="lazy" />` : '<span>Foto no disponible</span>'}
+                ${image ? '<span class="photo-zoom-mark">Ver foto</span>' : ''}
+              </button>
+              <div class="donation-review-content">
+                <div class="donation-review-topline"><span class="donation-status ${pendingReview ? 'pending' : donation.status === 'approved' ? 'approved' : 'rejected'}">${statusLabel}</span><time>${escapeHtml(date)}</time></div>
+                <h4>${escapeHtml(donation.place || 'Punto de reciclaje')}</h4>
+                <p>${escapeHtml(donation.qr_code || 'QR sin registrar')} · Ciudadano ${escapeHtml(String(donation.citizen_id || '').slice(0, 8))}</p>
+                ${pendingReview ? `<label class="donation-review-comment">Nota para el ciudadano <textarea data-review-comment maxlength="200" placeholder="Opcional: motivo si rechazas la foto"></textarea></label>
+                  <div class="donation-review-actions"><button class="primary-btn" type="button" data-review-action="approve">Aprobar · +5 pts</button><button class="secondary-btn" type="button" data-review-action="reject">Rechazar</button></div>` : `<div class="donation-review-result">${donation.status === 'approved' ? `+${Number(donation.earned_points || donation.points_awarded || 0)} puntos acreditados` : `Sin puntos acreditados${donation.comment ? ` · ${escapeHtml(donation.comment)}` : ''}`}</div>`}
+              </div>
+            </article>
+          `
+        }).join('')
+      }
+
+      const loadDonations = async () => {
+        donationsList.innerHTML = '<p class="form-hint">Cargando fotos de donaciones…</p>'
+        try {
+          const result = await fetchDonations()
+          donations = result.data || []
+          renderDonations()
+        } catch (error) {
+          donationsList.innerHTML = `<div class="donation-review-error">${escapeHtml(error.message || 'No se pudieron cargar las donaciones.')}</div>`
+        }
+      }
+
+      app.querySelectorAll('[data-donation-filter]').forEach(button => {
+        button.addEventListener('click', () => {
+          filter = button.dataset.donationFilter
+          app.querySelectorAll('[data-donation-filter]').forEach(item => {
+            const active = item === button
+            item.classList.toggle('active', active)
+            item.setAttribute('aria-pressed', String(active))
+          })
+          renderDonations()
+        })
+      })
+
+      app.querySelector('#refresh-donations')?.addEventListener('click', loadDonations)
+      donationsList.addEventListener('click', async event => {
+        const photoButton = event.target.closest('[data-photo-id]')
+        if (photoButton) {
+          const donation = donations.find(item => String(item.id) === photoButton.dataset.photoId)
+          const source = safeDonationImage(donation?.photo_url)
+          if (source) {
+            fullPhoto.src = source
+            photoDialog.showModal()
+          }
+          return
+        }
+
+        const actionButton = event.target.closest('[data-review-action]')
+        if (!actionButton) return
+        const card = actionButton.closest('[data-donation-id]')
+        const approved = actionButton.dataset.reviewAction === 'approve'
+        const comment = card.querySelector('[data-review-comment]')?.value.trim() || ''
+        card.querySelectorAll('button').forEach(button => { button.disabled = true })
+        card.classList.add('is-reviewing')
+        try {
+          const result = await reviewDonation(card.dataset.donationId, approved, { reviewer: getSession()?.name || null, comment: comment || null })
+          showToast(approved ? `Foto aprobada: ${result.earned_points} puntos acreditados` : 'Foto rechazada; no se sumaron puntos')
+          await loadDonations()
+        } catch (error) {
+          card.classList.remove('is-reviewing')
+          card.querySelectorAll('button').forEach(button => { button.disabled = false })
+          showToast(error.message || 'No se pudo revisar la foto', 'error')
+        }
+      })
+
+      app.querySelector('[data-close-donation-photo]')?.addEventListener('click', () => photoDialog.close())
+      photoDialog.addEventListener('click', event => {
+        if (event.target === photoDialog) photoDialog.close()
+      })
+      photoDialog.addEventListener('close', () => { fullPhoto.removeAttribute('src') })
+      loadDonations()
+    }
 
     const citizensList = app.querySelector('#citizens-list')
     if (citizensList) {
