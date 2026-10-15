@@ -63,7 +63,7 @@ def build_dashboard_data():
     )
     routes_data = safe_supabase_query(
         "routes",
-        "route_code,area,eta,status",
+        "route_code,area,eta,status,vehicle_id,vehicle_plate",
         [],
     )
     alerts_data = safe_supabase_query(
@@ -123,6 +123,9 @@ def build_dashboard_data():
             "route": route.get("route_code") or f"R-{len(route_entries) + 1:03d}",
             "area": area,
             "eta": eta,
+            "status_code": str(route.get("status") or "scheduled"),
+            "vehicle_id": route.get("vehicle_id"),
+            "vehicle_plate": route.get("vehicle_plate"),
             "status": str(route.get("status") or "scheduled").replace("in_progress", "En progreso").replace("urgent", "Urgente").replace("scheduled", "Programada"),
             "color": "red" if str(route.get("status") or "").lower() == "urgent" else "green" if str(route.get("status") or "").lower() == "in_progress" else "blue",
         })

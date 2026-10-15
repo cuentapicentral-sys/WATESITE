@@ -59,6 +59,14 @@ create table if not exists public.vehicles (
 
 alter table public.vehicles add column if not exists driver_name text;
 
+alter table public.routes
+  add column if not exists vehicle_id uuid references public.vehicles(id) on delete set null;
+alter table public.routes
+  add column if not exists vehicle_plate text;
+create unique index if not exists routes_one_active_vehicle_idx
+  on public.routes(vehicle_id)
+  where vehicle_id is not null and status in ('scheduled', 'in_progress');
+
 create table if not exists public.alerts (
   id uuid primary key default gen_random_uuid(),
   title text not null,

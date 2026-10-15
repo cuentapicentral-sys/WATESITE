@@ -55,3 +55,32 @@ def test_dashboard_returns_registered_fleet_vehicles():
         "load_level": 56,
         "load": "56%",
     }]
+
+
+def test_fill_notifications_fire_only_when_crossing_thresholds():
+    from services.notifications.logic import fill_transition_notification
+
+    container = {"code": "C-001", "zone": "Centro"}
+    warning = fill_transition_notification(container, 79, 80)
+    critical = fill_transition_notification(container, 89, 90)
+
+    assert warning["severity"] == "high"
+    assert critical["severity"] == "critical"
+    assert fill_transition_notification(container, 84, 86) is None
+    assert fill_transition_notification(container, 92, 95) is None
+
+
+def test_routes_select_only_an_available_compatible_vehicle():
+    from services.routes.main import select_available_vehicle
+
+    vehicles = [
+        {"id": "bike", "plate": "BIKE-01", "type": "Bicicleta electrica", "state": "operativo", "load_level": 0},
+        {"id": "busy", "plate": "TR-12", "type": "Camión compactador", "state": "operativo", "load_level": 10},
+        {"id": "available", "plate": "TR-88", "type": "Furgón de mantenimiento", "state": "operativo", "load_level": 30},
+        {"id": "moving", "plate": "TR-22", "type": "Camión compactador", "state": "en_ruta", "load_level": 0},
+    ]
+
+    chosen = select_available_vehicle(vehicles, {"busy"})
+
+    assert chosen["plate"] == "TR-88"
+    assert select_available_vehicle(vehicles, {"busy", "available"}) is None

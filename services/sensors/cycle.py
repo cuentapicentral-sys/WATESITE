@@ -1,6 +1,8 @@
 import math
 from datetime import datetime, timezone
 
+from services.notifications.logic import notify_fill_transition
+
 TICK_SECONDS = 5 * 60
 
 
@@ -55,6 +57,7 @@ def apply_sensor_cycle(client, moment: datetime | None = None) -> dict:
     current = _aware(moment)
     containers = client.table("containers").select("id,code,zone,fill_level,status").execute().data or []
     updated = []
+    notifications_created = 0
 
     for container in containers:
         state = container_cycle(container.get("code") or "", current)
@@ -66,11 +69,14 @@ def apply_sensor_cycle(client, moment: datetime | None = None) -> dict:
             client.table("sensor_readings").insert(
                 {"container_id": container["id"], "fill_level": state["fill_level"]}
             ).execute()
+            if notify_fill_transition(client, container, container.get("fill_level"), state["fill_level"]):
+                notifications_created += 1
         updated.append({**container, **state, "changed": changed})
 
     return {
         "interval_seconds": TICK_SECONDS,
         "seconds_until_next": seconds_until_next_tick(current),
         "updated": sum(item["changed"] for item in updated),
+        "notifications_created": notifications_created,
         "containers": updated,
     }

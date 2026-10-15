@@ -4,6 +4,7 @@ from pydantic import BaseModel, Field
 
 from services.database import supabase
 from services.events import publish_event
+from services.notifications.logic import notify_fill_transition
 from services.sensors.cycle import apply_sensor_cycle
 
 app = FastAPI(title="WasteWise Sensor Ingestion Service", version="1.0.0")
@@ -55,11 +56,11 @@ def ingest_reading(payload: SensorReading):
             status = "normal"
 
         supabase.table("containers").update({"fill_level": payload.fill_level, "status": status}).eq("id", container["id"]).execute()
+        notification = notify_fill_transition(supabase, container, container.get("fill_level"), payload.fill_level)
         if payload.fill_level >= 90:
-            supabase.table("alerts").insert({"title": "Contenedor próximo a desbordarse", "description": f"Sensor reportó {payload.fill_level}% de llenado para {container['code']} ({container['zone']}).", "severity": "high"}).execute()
             publish_event("container.critical", {"container_id": container["id"], "code": container["code"], "zone": container["zone"], "fill_level": payload.fill_level}, "container.critical")
         publish_event("container.fill_level.updated", {"container_id": container["id"], "code": container["code"], "fill_level": payload.fill_level, "status": status}, "container.fill_level.updated")
-        return {"data": reading, "container_status": status, "published": payload.fill_level >= 90, "container": container}
+        return {"data": reading, "container_status": status, "published": notification is not None, "notification": notification, "container": container}
     except HTTPException:
         raise
     except Exception as error:

@@ -50,7 +50,13 @@ export function fetchServiceData(service, path) {
 }
 
 export function optimizeRoute(payload) {
+  invalidateDashboard();
   return serviceRequest('routes', '/routes/optimize', { method: 'POST', body: JSON.stringify(payload) });
+}
+
+export function completeRoute(routeCode) {
+  invalidateDashboard();
+  return serviceRequest('routes', `/routes/${encodeURIComponent(routeCode)}/complete`, { method: 'PATCH' });
 }
 
 export function ingestSensorReading(payload) {

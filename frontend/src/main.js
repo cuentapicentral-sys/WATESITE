@@ -1,5 +1,5 @@
 import './style.css'
-import { collectContainer, createCitizen, createContainer, deleteContainer, fetchCitizens, fetchDashboardData, fetchDonations, fetchFleetVehicles, fetchIncidents, fetchMunicipalAnalytics, fetchNotifications, fetchRewards, fetchServiceData, ingestSensorReading, optimizeRoute, publishNotification, redeemReward, registerQrScan, registerVehicle, reportIncident, reviewDonation, syncSensorCycle, updateContainer, updateIncidentStatus } from './api.js'
+import { collectContainer, completeRoute, createCitizen, createContainer, deleteContainer, fetchCitizens, fetchDashboardData, fetchDonations, fetchFleetVehicles, fetchIncidents, fetchMunicipalAnalytics, fetchNotifications, fetchRewards, fetchServiceData, ingestSensorReading, optimizeRoute, publishNotification, redeemReward, registerQrScan, registerVehicle, reportIncident, reviewDonation, syncSensorCycle, updateContainer, updateIncidentStatus } from './api.js'
 import { citizenPortalRequested, renderCitizenPortal } from './citizen-portal.js'
 import { getSession, loginUser, logoutUser, registerUser } from './auth.js'
 import { fetchDrivingRoute, pointAtDistance, TRUCK_SPEED_KMH } from './dijkstra.js'
@@ -677,7 +677,7 @@ function getViewMarkup(view, data) {
     <section id="analytics-kpis"><div class="loading-card">Calculando con los datos de hoy...</div></section>`
 
   if (view === 'routes') {
-    return `${pageIntro('Rutas y recorridos · Route Optimization Service :8102', 'Optimización de rutas', 'Los camiones siguen las calles reales de Montería a 22 km/h, doblando por las vías en lugar de ir en línea recta.', '<span class="live-pill"><i></i> Dijkstra</span>')}<section class="panel city-map-panel"><div class="panel-header"><h3>Recorrido en vivo</h3><span class="live-pill"><i></i> Camino mínimo</span></div><div id="routes-map" class="city-map" role="region" aria-label="Camiones recorriendo la ruta de Dijkstra en Montería"></div><div id="routes-live-list" class="fleet-live-list"></div></section><form class="route-optimizer panel" id="route-optimizer"><label>Zona<select name="zone"><option value="">Todas las zonas</option>${[...new Set(containers.map(container => container.zone))].map(zone => `<option>${zone}</option>`).join('')}</select></label><label>Máximo de paradas<input name="max_stops" type="number" min="1" max="50" value="10" /></label><button class="primary-btn" type="submit">Generar ruta óptima</button></form><section class="route-grid">${routes.map(route => `<article class="info-card route-card"><div class="route-topline"><strong>${route.route}</strong><span class="status ${route.color}">${route.status}</span></div><p>${route.area}</p><small>ETA: ${route.eta}</small></article>`).join('')}</section><div id="route-result"></div>`
+    return `${pageIntro('Rutas y recorridos · Route Optimization Service :8102', 'Optimización de rutas', 'Las rutas nuevas se asignan a un vehículo operativo disponible. Al iniciarlas y finalizarlas se actualiza su estado y se genera una notificación.', '<span class="live-pill"><i></i> Dijkstra</span>')}<section class="panel city-map-panel"><div class="panel-header"><h3>Recorrido en vivo</h3><span class="live-pill"><i></i> Camino mínimo</span></div><div id="routes-map" class="city-map" role="region" aria-label="Camiones recorriendo la ruta de Dijkstra en Montería"></div><div id="routes-live-list" class="fleet-live-list"></div></section><form class="route-optimizer panel" id="route-optimizer"><label>Zona<select name="zone"><option value="">Todas las zonas</option>${[...new Set(containers.map(container => container.zone))].map(zone => `<option>${zone}</option>`).join('')}</select></label><label>Máximo de paradas<input name="max_stops" type="number" min="1" max="50" value="10" /></label><button class="primary-btn" type="submit">Generar ruta óptima</button></form><section class="route-grid">${routes.map(route => `<article class="info-card route-card"><div class="route-topline"><strong>${route.route}</strong><span class="status ${route.color}">${route.status}</span></div><p>${route.area}</p><small>ETA: ${route.eta} · Unidad: ${escapeHtml(route.vehicle_plate || 'Sin asignar')}</small>${route.vehicle_id && route.status_code === 'in_progress' ? `<button class="chip" type="button" data-complete-route="${escapeHtml(route.route)}">Finalizar ruta y liberar vehículo</button>` : ''}</article>`).join('')}</section><div id="route-result"></div>`
   }
 
   if (view === 'containers') {
@@ -1049,12 +1049,27 @@ async function renderDashboard(selectedView = 'dashboard') {
       const values = Object.fromEntries(new FormData(event.currentTarget))
       try {
         const result = await optimizeRoute({ zone: values.zone || null, max_stops: Number(values.max_stops) })
+        if (result.status === 'optimized') {
+          showToast(`Ruta ${result.route.route_code} iniciada con ${result.route.vehicle_plate}`)
+          renderDashboard('routes')
+          return
+        }
         const target = app.querySelector('#route-result')
         const km = result.distance_km != null ? ` · ${result.distance_km} km` : ''
         target.innerHTML = `<div class="success-panel"><strong>${result.status === 'optimized' ? 'Ruta por calles generada' : result.message || 'Sin paradas nuevas'}</strong><span>${result.route ? `${result.route.route_code} · ${result.stops.length} paradas · ETA ${result.route.eta}` : 'Calles de Montería'}${km}</span></div>`
         const stops = [FLEET_DEPOT, ...(result.stops || []).slice(0, 6).map(locateContainer), FLEET_DEPOT]
         fetchDrivingRoute(stops).then(streetPath => mountRouteMotion(data.fleet || [], data.containers || [], streetPath)).catch(() => showToast('No se pudo trazar la calle', 'error'))
       } catch (error) { showToast(error.message, 'error') }
+    })
+
+    app.querySelectorAll('[data-complete-route]').forEach(button => {
+      button.addEventListener('click', async () => {
+        try {
+          const result = await completeRoute(button.dataset.completeRoute)
+          showToast(`Ruta ${result.data.route_code} finalizada; ${result.data.vehicle_plate || 'el vehículo'} quedó disponible`)
+          renderDashboard('routes')
+        } catch (error) { showToast(error.message, 'error') }
+      })
     })
 
     app.querySelector('#fleet-form')?.addEventListener('submit', async event => {

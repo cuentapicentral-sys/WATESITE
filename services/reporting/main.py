@@ -8,6 +8,7 @@ from pydantic import BaseModel, Field
 from services.database import supabase
 from services.events import publish_event
 from services.fieldwork import assigned_vehicle, citizen_status, with_vehicle
+from services.notifications.logic import create_notification
 
 TRACKING_RE = re.compile(r"\[(RAD-[A-Z0-9]{6})\]")
 TRACKING_ALPHABET = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789"
@@ -77,6 +78,12 @@ def create_incident(payload: IncidentPayload):
         except Exception:
             response = supabase.table("citizen_incidents").insert(record).execute()
         saved = response.data[0]
+        create_notification(
+            supabase,
+            "Nueva incidencia ciudadana",
+            f"{saved.get('category', 'Incidencia')}: {saved.get('description', '')}",
+            "medium",
+        )
         publish_event("incident.reported", public_incident(saved), "incident.reported")
         return {"data": public_incident(saved), "tracking_code": code}
     except Exception as error:
