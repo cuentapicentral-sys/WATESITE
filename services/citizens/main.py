@@ -43,6 +43,12 @@ class DonationPayload(BaseModel):
     photo_url: str
 
 
+class DonationReviewPayload(BaseModel):
+    approved: bool = True
+    reviewer: str | None = Field(default=None, max_length=120)
+    comment: str | None = Field(default=None, max_length=200)
+
+
 def present_citizen(citizen: dict) -> dict:
     return {**citizen, "name": public_name(citizen["name"]), "phone": phone_from_name(citizen["name"])}
 
@@ -170,12 +176,6 @@ def register_qr_scan(citizen_id: str, payload: ScanPayload):
 class CatalogRedeemPayload(BaseModel):
     phone: str = Field(min_length=7, max_length=20)
     code: str = Field(min_length=3, max_length=20)
-
-
-class DonationReviewPayload(BaseModel):
-    approved: bool = True
-    reviewer: str | None = Field(default=None, max_length=120)
-    comment: str | None = Field(default=None, max_length=200)
 
 
 @app.get("/rewards/catalog")
