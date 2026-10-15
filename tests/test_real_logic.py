@@ -34,3 +34,24 @@ def test_dashboard_returns_container_rows():
         dashboard = backend_main.build_dashboard_data()
 
     assert dashboard["containers"] == containers
+
+
+def test_dashboard_returns_registered_fleet_vehicles():
+    from backend import main as backend_main
+
+    vehicles = [{"id": "vehicle-1", "plate": "TR-88", "type": "Camión", "state": "en ruta", "load_level": 56}]
+
+    def query(table_name, _select_fields, _fallback):
+        return vehicles if table_name == "vehicles" else []
+
+    with patch.object(backend_main, "safe_supabase_query", side_effect=query):
+        dashboard = backend_main.build_dashboard_data()
+
+    assert dashboard["fleet"] == [{
+        "id": "TR-88",
+        "plate": "TR-88",
+        "type": "Camión",
+        "state": "en ruta",
+        "load_level": 56,
+        "load": "56%",
+    }]

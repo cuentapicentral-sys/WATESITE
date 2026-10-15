@@ -73,9 +73,17 @@ def build_dashboard_data():
     )
     vehicles = safe_supabase_query(
         "vehicles",
-        "plate,type,state,load_level",
+        "id,plate,type,state,load_level",
         [],
     )
+    fleet = [
+        {
+            **vehicle,
+            "id": vehicle.get("plate") or vehicle.get("id") or "Vehículo",
+            "load": f"{int(vehicle.get('load_level') or 0)}%",
+        }
+        for vehicle in vehicles
+    ]
     citizens = safe_supabase_query(
         "citizens",
         "name,points",
@@ -136,6 +144,7 @@ def build_dashboard_data():
             {"label": "Alertas críticas", "value": str(critical_count), "change": "Monitoreo", "tone": "negative"},
         ],
         "containers": containers,
+        "fleet": fleet,
         "zones": zones,
         "routes": route_entries,
         "alerts": alerts,
@@ -189,11 +198,7 @@ def dashboard():
         "route_code,area,eta,status",
         [],
     )
-    vehicles = safe_supabase_query(
-        "vehicles",
-        "plate,type,state,load_level",
-        [],
-    )
+    vehicles = data["fleet"]
     incidents = safe_supabase_query("citizen_incidents", "status", [])
     operations = operational_snapshot(containers, routes_data, vehicles, incidents)
 

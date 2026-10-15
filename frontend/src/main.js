@@ -21,12 +21,6 @@ const navIcons = {
   dashboard: '⌂', containers: '▣', sensors: '⌁', routes: '⌖', fleet: '▱', citizens: '✦', reporting: '◌', notifications: '♧', driver: '☰', cierre: '▤', analytics: '◫',
 }
 
-const fleetData = [
-  { id: 'TR-01', type: 'Camión compactador', state: 'Operativo', load: '74%' },
-  { id: 'TR-12', type: 'Vehículo de reciclaje', state: 'En ruta', load: '58%' },
-  { id: 'TR-19', type: 'Furgón de mantenimiento', state: 'Revisión', load: '32%' },
-]
-
 const citizenData = [
   { label: 'Participación ciudadana', value: '84.6%' },
   { label: 'Puntos canjeados', value: '12.4k' },
@@ -504,6 +498,11 @@ function vehicleIsMoving(state) {
   return !['revision', 'revisión', 'fuera_de_servicio', 'fuera de servicio'].includes(value)
 }
 
+function vehicleStateLabel(state) {
+  const value = String(state || '').trim().toLowerCase().replace(/\s+/g, '_')
+  return ({ operativo: 'Operativo', en_ruta: 'En ruta', revision: 'En revisión', fuera_de_servicio: 'Fuera de servicio' })[value] || state || 'Sin estado'
+}
+
 function streetRoute(index) {
   return STREET_ROUTES[index % STREET_ROUTES.length].points
 }
@@ -616,7 +615,7 @@ function mountRouteMotion(fleet, containers, forcedPath) {
     }).addTo(map)
   })
   const trucks = fleet.filter(vehicleIsMoving)
-  const moving = trucks.length ? trucks : [{ id: 'Ruta de zona', type: 'Camión compactador', state: 'en_ruta' }]
+  const moving = trucks
   window.wastewiseRouteMap = map
   if (path) {
     animateTrucks(map, moving, containers, () => path, 'routes-live-list', false)
@@ -652,7 +651,7 @@ function liveOperations(data) {
 }
 
 function getViewMarkup(view, data) {
-  const { stats, containers = [], zones, routes, alerts, kpis, fleet = fleetData, citizens = citizenData, reports = reportData } = data
+  const { stats, containers = [], zones, routes, alerts, kpis, fleet = [], citizens = citizenData, reports = reportData } = data
   const sectionTopbar = buildTopbarShell()
   const pageIntro = (eyebrow, title, subtitle, action = '') => `${sectionTopbar}<section class="section-header"><div><p class="eyebrow">${eyebrow}</p><h1>${title}</h1><p class="section-subtitle">${subtitle}</p></div>${action}</section>`
 
@@ -770,10 +769,10 @@ function getViewMarkup(view, data) {
       <section class="cards-grid">
         ${fleet.map(vehicle => `
           <article class="info-card">
-            <h3>${vehicle.id}</h3>
+            <h3>${vehicle.plate || vehicle.id}</h3>
             <p>${vehicle.type}</p>
-            <span class="card-tag ${vehicle.state === 'Revisión' ? 'warning' : ''}">${vehicle.state}</span>
-            <small>Carga: ${vehicle.load}</small>
+            <span class="card-tag ${vehicleIsMoving(vehicle.state) ? '' : 'warning'}">${vehicleStateLabel(vehicle.state)}</span>
+            <small>Carga: ${vehicle.load || `${Number(vehicle.load_level) || 0}%`}</small>
           </article>
         `).join('')}
       </section>

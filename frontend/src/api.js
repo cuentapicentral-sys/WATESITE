@@ -97,6 +97,7 @@ export function fetchNotifications() {
 }
 
 export function registerVehicle(payload) {
+  invalidateDashboard();
   return serviceRequest('fleet', '/fleet/vehicles', { method: 'POST', body: JSON.stringify(payload) });
 }
 
