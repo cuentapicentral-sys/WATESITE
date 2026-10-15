@@ -27,12 +27,16 @@ create table if not exists public.containers (
   id uuid primary key default gen_random_uuid(),
   code text unique not null,
   zone text not null,
+  container_type text not null default 'general',
   latitude double precision,
   longitude double precision,
   fill_level integer not null default 0 check (fill_level between 0 and 100),
   status text not null default 'normal',
   created_at timestamptz default now()
 );
+
+alter table public.containers
+  add column if not exists container_type text not null default 'general';
 
 create table if not exists public.routes (
   id uuid primary key default gen_random_uuid(),

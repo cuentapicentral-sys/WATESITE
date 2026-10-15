@@ -58,7 +58,7 @@ def safe_supabase_query(table_name: str, select_fields: str, fallback):
 def build_dashboard_data():
     containers = safe_supabase_query(
         "containers",
-        "id,code,zone,fill_level,status,latitude,longitude",
+        "id,code,zone,container_type,fill_level,status,latitude,longitude",
         [],
     )
     routes_data = safe_supabase_query(
@@ -180,7 +180,7 @@ def dashboard():
     data = build_dashboard_data()
     containers = safe_supabase_query(
         "containers",
-        "id,code,zone,fill_level,status,latitude,longitude",
+        "id,code,zone,container_type,fill_level,status,latitude,longitude",
         [],
     )
     routes_data = safe_supabase_query(

@@ -836,7 +836,7 @@ async function renderDashboard(selectedView = 'dashboard') {
   clearMaps()
 
   try {
-    const data = await fetchDashboardData(true)
+    const data = await fetchDashboardData()
 
     const reuseShell = Boolean(app.querySelector('.dashboard-shell'))
     if (reuseShell) {

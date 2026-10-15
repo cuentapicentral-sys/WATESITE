@@ -215,6 +215,7 @@ export async function updateContainer(id, container) {
 }
 
 export async function deleteContainer(id) {
+  invalidateDashboard();
   const response = await fetch(`${API_BASE_URL}/supabase/containers/${id}`, { method: 'DELETE' });
   if (!response.ok) throw new Error('No se pudo eliminar el contenedor');
   return response.json();
