@@ -253,13 +253,25 @@ Para detener los contenedores:
 docker compose down
 ```
 
-## Despliegue en Render
+## CI/CD con GitHub Actions
 
-La definición `render.yaml` crea el frontend público, la API y los ocho microservicios privados, además de RabbitMQ con disco persistente. Nginx publica las APIs bajo el mismo dominio (`/api` y `/services/...`), por lo que el navegador no necesita conocer direcciones internas ni puertos locales.
+El workflow `.github/workflows/ci-cd.yml` valida pull requests a `main` con Flake8, Black, pytest y el build de Vite. En pushes a `main`, solo después de esas validaciones construye y publica en GHCR las imágenes integradas `wastewise`, `frontend` y `backend`, etiquetadas con el SHA y `main`. Cada microservicio tiene un repositorio independiente con su propio workflow y publicación de imagen; WATESITE ya no vuelve a publicar copias de esas imágenes.
 
-1. Sube este proyecto a un repositorio de GitHub.
-2. En Render, crea un **Blueprint** conectado a ese repositorio y selecciona `render.yaml`.
-3. Al crear el Blueprint, introduce `SUPABASE_URL` y `SUPABASE_SERVICE_ROLE_KEY` cuando Render los solicite. No guardes esas claves en GitHub.
-4. Espera a que el frontend, backend, ocho microservicios y RabbitMQ indiquen estado disponible. Render entrega la URL pública del frontend.
+Render está configurado para despliegues desde el repositorio con `autoDeployTrigger: checksPass`. `render.yaml` describe un servicio basado en el Dockerfile raíz; `render.paid.yaml` describe el despliegue separado de frontend, backend, ocho microservicios y RabbitMQ. Render no consume actualmente las imágenes publicadas en GHCR. Configura las credenciales de Supabase directamente en Render y verifica allí cada despliegue y su endpoint de salud real.
 
-GitHub Actions ejecuta Flake8, Black, pytest, el build de Vite y construye las diez imágenes Docker. Las imágenes se publican en GHCR al hacer push a `main`; Render despliega desde el mismo commit únicamente cuando pasan los checks. Los servicios privados y el disco persistente de RabbitMQ requieren un plan de Render con facturación; revisa el coste estimado en Render antes de confirmar la creación.
+Los repositorios independientes son:
+
+- [watesite-containers](https://github.com/cuentapicentral-sys/watesite-containers)
+- [watesite-sensors](https://github.com/cuentapicentral-sys/watesite-sensors)
+- [watesite-routes](https://github.com/cuentapicentral-sys/watesite-routes)
+- [watesite-fleet](https://github.com/cuentapicentral-sys/watesite-fleet)
+- [watesite-citizens](https://github.com/cuentapicentral-sys/watesite-citizens)
+- [watesite-reporting](https://github.com/cuentapicentral-sys/watesite-reporting)
+- [watesite-notifications](https://github.com/cuentapicentral-sys/watesite-notifications)
+- [watesite-analytics](https://github.com/cuentapicentral-sys/watesite-analytics)
+
+La extracción conserva el historial Git de cada carpeta de servicio. Los directorios `services/` que permanecen aquí se usan como copia de integración para el backend, los tests y el despliegue integrado; para cambios propios de un microservicio, el repositorio independiente es la fuente y el pipeline canónicos. Los módulos compartidos incluidos en cada repositorio se sincronizan deliberadamente cuando cambian.
+
+La guía con arquitectura, configuración, comandos, evidencia positiva/negativa y plantilla de reflexión está en [docs/CI_CD_GITHUB_ACTIONS.md](docs/CI_CD_GITHUB_ACTIONS.md).
+
+El acceso demo del frontend permite ver un dashboard con datos ilustrativos locales sin iniciar el backend ni conectarse a Supabase. Las operaciones que guardan cambios sí requieren los servicios correspondientes.

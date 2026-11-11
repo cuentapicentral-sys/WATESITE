@@ -1,4 +1,5 @@
 import { assignIncident, collectContainer, fetchDashboardData, fetchDayClose, fetchRewardCatalog, redeemCatalogReward } from './api.js'
+import { isDemoSession } from './auth.js'
 
 const CITY = { lat: 8.74798, lng: -75.88143, minLat: 8.68, maxLat: 8.82, minLng: -75.96, maxLng: -75.82 }
 const SCHEDULE = [
@@ -56,6 +57,7 @@ export async function renderDriverSheet(notify = () => {}) {
         <img class="brand-logo" src="/logo.png?v=2" alt="EcoUrbana" />
         <div><p class="eyebrow">Hoja del conductor</p><h1>Paradas de hoy</h1></div>
       </header>
+      ${isDemoSession() ? '<p class="demo-mode-banner" role="status">Modo demo · paradas ilustrativas; las acciones de recolección están desactivadas.</p>' : ''}
       <label>Placa<input id="driver-plate" value="${escapeHtml(plate)}" maxlength="12" /></label>
       <div id="driver-stops">Cargando paradas…</div>
       <a class="chip" href="/">Volver al centro de control</a>
@@ -69,7 +71,7 @@ export async function renderDriverSheet(notify = () => {}) {
     const list = app.querySelector('#driver-stops')
     list.innerHTML = stops.map((stop, index) => {
       const point = locate(stop)
-      return `<article class="driver-stop"><b>${index + 1}</b><div><strong>${escapeHtml(stop.code)}</strong><small>${escapeHtml(stop.area || 'Montería')} · ${stop.fill_level}% · ${Math.round(Number(stop.fill_level) * 1.1)} kg</small><a href="https://www.google.com/maps/dir/?api=1&destination=${point.lat},${point.lng}" target="_blank" rel="noreferrer">Abrir en el mapa</a></div><button class="primary-btn" type="button" data-collect="${stop.id}" ${Number(stop.fill_level) === 0 ? 'disabled' : ''}>Recogido</button></article>`
+      return `<article class="driver-stop"><b>${index + 1}</b><div><strong>${escapeHtml(stop.code)}</strong><small>${escapeHtml(stop.area || 'Montería')} · ${stop.fill_level}% · ${Math.round(Number(stop.fill_level) * 1.1)} kg</small><a href="https://www.google.com/maps/dir/?api=1&destination=${point.lat},${point.lng}" target="_blank" rel="noreferrer">Abrir en el mapa</a></div><button class="primary-btn" type="button" data-collect="${stop.id}" ${Number(stop.fill_level) === 0 || isDemoSession() ? 'disabled' : ''}>${isDemoSession() ? 'Solo lectura' : 'Recogido'}</button></article>`
     }).join('') || '<p class="form-hint">No hay contenedores para hoy.</p>'
     list.querySelectorAll('[data-collect]').forEach(button => {
       button.addEventListener('click', async () => {
@@ -93,7 +95,7 @@ export function incidentDeskMarkup() {
   return `<section class="panel"><div class="panel-header"><h3>Solicitudes en Montería</h3><small>Asigna un vehículo y el ciudadano verá “En camino”.</small></div><div id="incidents-map" class="city-map"></div><div id="incidents-desk" class="form-hint">Cargando solicitudes…</div></section>`
 }
 
-export function mountIncidentDesk(incidents, vehicles, notify) {
+export function mountIncidentDesk(incidents, vehicles, notify, readOnly = false) {
   clearFieldMaps()
   const mapNode = document.querySelector('#incidents-map')
   const desk = document.querySelector('#incidents-desk')
@@ -106,7 +108,7 @@ export function mountIncidentDesk(incidents, vehicles, notify) {
   })
   const plates = (vehicles || []).map(vehicle => vehicle.plate).filter(Boolean)
   const options = (plates.length ? plates : ['TR-01', 'TR-02']).map(plate => `<option>${escapeHtml(plate)}</option>`).join('')
-  desk.innerHTML = (incidents || []).slice(0, 8).map(item => `<div class="channel-row"><span>${escapeHtml(item.tracking_code || 'Sin radicado')}<small>${escapeHtml(item.category)} · ${escapeHtml(item.assigned_vehicle || item.status || 'reportada')}</small></span><select data-plate="${item.id}">${options}</select><button class="chip" type="button" data-assign="${item.id}">Asignar</button></div>`).join('') || '<p class="form-hint">Todavía no hay solicitudes.</p>'
+  desk.innerHTML = (incidents || []).slice(0, 8).map(item => `<div class="channel-row"><span>${escapeHtml(item.tracking_code || 'Sin radicado')}<small>${escapeHtml(item.category)} · ${escapeHtml(item.assigned_vehicle || item.status || 'reportada')}</small></span><select data-plate="${item.id}" ${readOnly ? 'disabled' : ''}>${options}</select><button class="chip" type="button" data-assign="${item.id}" ${readOnly ? 'disabled' : ''}>Asignar</button></div>`).join('') || '<p class="form-hint">Todavía no hay solicitudes.</p>'
   desk.querySelectorAll('[data-assign]').forEach(button => {
     button.addEventListener('click', async () => {
       const plate = desk.querySelector(`[data-plate="${button.dataset.assign}"]`)?.value

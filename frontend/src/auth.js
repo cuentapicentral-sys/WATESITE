@@ -35,6 +35,10 @@ export function getSession() {
   return JSON.parse(localStorage.getItem(SESSION_KEY) || 'null')
 }
 
+export function isDemoSession() {
+  return getSession()?.email === 'demo@wastewise.local'
+}
+
 export async function loginUser(email, password, remember = true) {
   const normalizedEmail = email.toLowerCase().trim()
   try {

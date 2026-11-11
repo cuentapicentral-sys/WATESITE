@@ -1,4 +1,10 @@
-from services.routes.dijkstra import DEPOT, dijkstra, nearest_node, plan_collection, shortest_loop
+from services.routes.dijkstra import (
+    DEPOT,
+    dijkstra,
+    nearest_node,
+    plan_collection,
+    shortest_loop,
+)
 
 
 def test_dijkstra_follows_the_street_grid_instead_of_a_straight_jump():

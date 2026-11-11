@@ -62,6 +62,43 @@ function showToast(message, type = 'success') {
   }, 2600)
 }
 
+function enforceDemoReadOnly() {
+  const mainPanel = app.querySelector('.main-panel')
+  if (!mainPanel) return
+
+  mainPanel.querySelectorAll('form').forEach(form => {
+    form.setAttribute('aria-disabled', 'true')
+    form.querySelectorAll('input, select, textarea, button').forEach(control => { control.disabled = true })
+  })
+  mainPanel.querySelectorAll([
+    '.collect-container',
+    '.edit-container',
+    '.delete-container',
+    '[data-complete-route]',
+    '[data-collect]',
+    '[data-assign]',
+    '[data-review-action]',
+    '[data-code]',
+  ].join(',')).forEach(control => { control.disabled = true })
+  mainPanel.querySelectorAll('.action-card').forEach(control => {
+    if (control.textContent.includes('Reasignar rutas')) control.disabled = true
+  })
+}
+
+function bindOperationalSearch() {
+  const search = app.querySelector('.global-search input')
+  const mainPanel = app.querySelector('.main-panel')
+  if (!search || !mainPanel) return
+
+  const searchableItems = '.container-table-row, .sensor-fill-row, .route-card, .route-table-row, .info-card, .channel-row, .donation-review-card, .decision, .zone-row, .waste-row'
+  search.addEventListener('input', () => {
+    const query = search.value.trim().toLocaleLowerCase()
+    mainPanel.querySelectorAll(searchableItems).forEach(item => {
+      item.hidden = Boolean(query) && !item.textContent.toLocaleLowerCase().includes(query)
+    })
+  })
+}
+
 function buildTopbarShell() {
   return `
     <header class="topbar product-topbar">
@@ -656,34 +693,34 @@ function getViewMarkup(view, data) {
   const pageIntro = (eyebrow, title, subtitle, action = '') => `${sectionTopbar}<section class="section-header"><div><p class="eyebrow">${eyebrow}</p><h1>${title}</h1><p class="section-subtitle">${subtitle}</p></div>${action}</section>`
 
   if (view === 'sensors') return `
-    ${pageIntro('Sensores IoT · Sensor Ingestion Service :8105', 'Monitoreo en tiempo real', 'Los contenedores se llenan en ciclo y el sensor guarda una lectura nueva cada 5 minutos. Al llegar al tope, se vacían y vuelven a empezar.', '<span class="live-pill"><i></i> Ciclo cada 5 min</span>')}
-    <section class="sensor-cycle-banner"><span>Próxima actualización</span><strong id="sensor-next-tick">5:00</strong><small>Cada contenedor sube su llenado y, cuando está lleno, la siguiente lectura lo deja vacío.</small></section>
+    ${pageIntro('Sensores IoT · Sensor Ingestion Service :8105', data.demoMode ? 'Lecturas de muestra' : 'Monitoreo en tiempo real', data.demoMode ? 'Valores ilustrativos para revisar la pantalla; no se reciben lecturas del servicio.' : 'Los contenedores se llenan en ciclo y el sensor guarda una lectura nueva cada 5 minutos. Al llegar al tope, se vacían y vuelven a empezar.', `<span class="live-pill"><i></i> ${data.demoMode ? 'Datos de ejemplo' : 'Ciclo cada 5 min'}</span>`)}
+    <section class="sensor-cycle-banner"><span>${data.demoMode ? 'Modo de visualización' : 'Próxima actualización'}</span><strong id="sensor-next-tick">${data.demoMode ? 'Muestra' : '5:00'}</strong><small>${data.demoMode ? 'Este panel no está conectado a sensores reales.' : 'Cada contenedor sube su llenado y, cuando está lleno, la siguiente lectura lo deja vacío.'}</small></section>
     <section class="stats-grid service-stats"><article class="stat-card"><span>Sensores activos</span><strong>${containers.length}</strong><em class="positive-text">● En ciclo</em></article><article class="stat-card"><span>Llenándose</span><strong>${containers.filter(container => container.phase !== 'vaciado' && container.fill_level < 90).length}</strong><em class="positive-text">● Subiendo</em></article><article class="stat-card"><span>En alerta</span><strong>${containers.filter(container => container.fill_level >= 75).length}</strong><em class="neutral-text">● Revisar</em></article><article class="stat-card"><span>Recién vaciados</span><strong>${containers.filter(container => container.phase === 'vaciado').length}</strong><em class="positive-text">● Recolectados</em></article></section>
-    <section class="sensor-layout"><article class="panel sensor-level"><div class="panel-header"><h3>Nivel de llenado</h3><button class="chip">Ciclo de 5 min</button></div><div class="sensor-donut"><strong>${Math.round(containers.reduce((sum, item) => sum + Number(item.fill_level || 0), 0) / Math.max(containers.length, 1))}%</strong><small>Promedio</small></div><div class="sensor-legend"><span><i class="dot green"></i>0–25% <b>${countFillBand(containers, 0, 25)}</b></span><span><i class="dot light-green"></i>26–50% <b>${countFillBand(containers, 26, 50)}</b></span><span><i class="dot amber"></i>51–75% <b>${countFillBand(containers, 51, 75)}</b></span><span><i class="dot red"></i>76–100% <b>${countFillBand(containers, 76, 100)}</b></span></div></article><form class="panel service-form" id="sensor-form"><div class="panel-header"><h3>Procesar lectura</h3><span class="live-pill"><i></i> API activa</span></div><label>Contenedor<select name="container_id" required>${containers.map(container => `<option value="${container.id}">${container.code} · ${container.zone}</option>`).join('')}</select></label><label>Nivel de llenado (%)<input name="fill_level" type="number" min="0" max="100" value="92" required /></label><button class="primary-btn" type="submit">Procesar lectura</button><p class="form-hint">Puedes forzar una lectura. El ciclo automático la reemplaza en la siguiente actualización de 5 minutos.</p></form></section>
-    <section class="panel sensor-fill-panel"><div class="panel-header"><h3>Llenado por contenedor</h3><span class="live-pill"><i></i> En vivo</span></div><div class="sensor-fill-list">${sensorContainersMarkup(containers)}</div></section>
-    <section class="panel sensor-events"><div class="panel-header"><h3>Últimos eventos</h3><button class="chip">Ciclo actual</button></div><div class="event-grid"><span>Hora</span><span>Contenedor</span><span>Evento</span>${containers.slice(0, 6).map(container => `<time>ahora</time><strong>${container.code}</strong><span><i class="dot ${fillTone(Number(container.fill_level) || 0)}"></i>${container.phase === 'vaciado' ? 'Vaciado por recolección' : 'Lectura ' + container.fill_level + '% · llenándose'}</span>`).join('')}</div></section>`
+    <section class="sensor-layout"><article class="panel sensor-level"><div class="panel-header"><h3>Nivel de llenado</h3><span class="chip">${data.demoMode ? 'Resumen de muestra' : 'Ciclo de 5 min'}</span></div><div class="sensor-donut"><strong>${Math.round(containers.reduce((sum, item) => sum + Number(item.fill_level || 0), 0) / Math.max(containers.length, 1))}%</strong><small>Promedio</small></div><div class="sensor-legend"><span><i class="dot green"></i>0–25% <b>${countFillBand(containers, 0, 25)}</b></span><span><i class="dot light-green"></i>26–50% <b>${countFillBand(containers, 26, 50)}</b></span><span><i class="dot amber"></i>51–75% <b>${countFillBand(containers, 51, 75)}</b></span><span><i class="dot red"></i>76–100% <b>${countFillBand(containers, 76, 100)}</b></span></div></article>${data.demoMode ? '<article class="panel service-form"><div class="panel-header"><h3>Procesamiento de lecturas</h3><span class="chip">No disponible en demo</span></div><p class="form-hint">Conecta el servicio de sensores para procesar lecturas.</p></article>' : `<form class="panel service-form" id="sensor-form"><div class="panel-header"><h3>Procesar lectura</h3><span class="live-pill"><i></i> API activa</span></div><label>Contenedor<select name="container_id" required>${containers.map(container => `<option value="${container.id}">${container.code} · ${container.zone}</option>`).join('')}</select></label><label>Nivel de llenado (%)<input name="fill_level" type="number" min="0" max="100" value="92" required /></label><button class="primary-btn" type="submit">Procesar lectura</button><p class="form-hint">Puedes forzar una lectura. El ciclo automático la reemplaza en la siguiente actualización de 5 minutos.</p></form>`}</section>
+    <section class="panel sensor-fill-panel"><div class="panel-header"><h3>Llenado por contenedor</h3><span class="live-pill"><i></i> ${data.demoMode ? 'Muestra' : 'En vivo'}</span></div><div class="sensor-fill-list">${sensorContainersMarkup(containers)}</div></section>
+    <section class="panel sensor-events"><div class="panel-header"><h3>Últimos eventos</h3><span class="chip">${data.demoMode ? 'Datos de muestra' : 'Ciclo actual'}</span></div><div class="event-grid"><span>Hora</span><span>Contenedor</span><span>Evento</span>${containers.slice(0, 6).map(container => `<time>${data.demoMode ? 'Muestra' : 'ahora'}</time><strong>${container.code}</strong><span><i class="dot ${fillTone(Number(container.fill_level) || 0)}"></i>${container.phase === 'vaciado' ? 'Vaciado por recolección' : 'Lectura ' + container.fill_level + '% · llenándose'}</span>`).join('')}</div></section>`
 
   if (view === 'reporting') return `
-    ${pageIntro('Reportes ciudadanos · Citizen Reporting Service :8106', 'Incidencias ciudadanas', 'Registra, asigna y resuelve problemas de la vía pública con seguimiento operativo.')}
+    ${pageIntro('Reportes ciudadanos · Citizen Reporting Service :8106', 'Incidencias ciudadanas', data.demoMode ? 'Revisa solicitudes ilustrativas; registrar o asignar requiere conectar los servicios.' : 'Registra, asigna y resuelve problemas de la vía pública con seguimiento operativo.')}
     ${incidentFormMarkup()}
     ${incidentDeskMarkup()}`
 
   if (view === 'notifications') return `
-    ${pageIntro('Notificaciones · Notification Service :8107', 'Centro de notificaciones', 'Publica alertas para los equipos municipales y consulta el feed operativo.')}
+    ${pageIntro('Notificaciones · Notification Service :8107', 'Centro de notificaciones', data.demoMode ? 'Feed de muestra; la publicación requiere conectar el servicio de notificaciones.' : 'Publica alertas para los equipos municipales y consulta el feed operativo.')}
     <div class="service-layout"><form class="panel service-form" id="notification-form"><h3>Publicar notificación</h3><label>Título<input name="title" placeholder="Ej. Ruta reprogramada" required /></label><label>Mensaje<textarea name="message" placeholder="Mensaje para los operadores..." required></textarea></label><label>Severidad<select name="severity"><option value="low">Baja</option><option value="medium" selected>Media</option><option value="high">Alta</option><option value="critical">Crítica</option></select></label><button class="primary-btn" type="submit">Publicar alerta</button></form><article class="panel feed-panel"><div class="panel-header"><h3>Feed operativo</h3><button class="chip" id="refresh-notifications" type="button">Actualizar</button></div><div id="notifications-list">Cargando alertas…</div></article></div>`
 
   if (view === 'analytics') return `
-    ${pageIntro('Operación municipal', 'Analítica municipal', 'Lectura real de Montería: kilos pendientes, zonas, solicitudes y qué conviene hacer ahora.', '<button class="secondary-btn" id="refresh-analytics">Actualizar</button>')}
+    ${pageIntro('Operación municipal', 'Analítica municipal', data.demoMode ? 'Indicadores ilustrativos de Montería; no representan datos operativos reales.' : 'Lectura real de Montería: kilos pendientes, zonas, solicitudes y qué conviene hacer ahora.', '<button class="secondary-btn" id="refresh-analytics">Actualizar</button>')}
     <section id="analytics-kpis"><div class="loading-card">Calculando con los datos de hoy...</div></section>`
 
   if (view === 'routes') {
-    return `${pageIntro('Rutas y recorridos · Route Optimization Service :8102', 'Optimización de rutas', 'Las rutas nuevas se asignan a un vehículo operativo disponible. Al iniciarlas y finalizarlas se actualiza su estado y se genera una notificación.', '<span class="live-pill"><i></i> Dijkstra</span>')}<section class="panel city-map-panel"><div class="panel-header"><h3>Recorrido en vivo</h3><span class="live-pill"><i></i> Camino mínimo</span></div><div id="routes-map" class="city-map" role="region" aria-label="Camiones recorriendo la ruta de Dijkstra en Montería"></div><div id="routes-live-list" class="fleet-live-list"></div></section><form class="route-optimizer panel" id="route-optimizer"><label>Zona<select name="zone"><option value="">Todas las zonas</option>${[...new Set(containers.map(container => container.zone))].map(zone => `<option>${zone}</option>`).join('')}</select></label><label>Máximo de paradas<input name="max_stops" type="number" min="1" max="50" value="10" /></label><button class="primary-btn" type="submit">Generar ruta óptima</button></form><section class="route-grid">${routes.map(route => `<article class="info-card route-card"><div class="route-topline"><strong>${route.route}</strong><span class="status ${route.color}">${route.status}</span></div><p>${route.area}</p><small>ETA: ${route.eta} · Unidad: ${escapeHtml(route.vehicle_plate || 'Sin asignar')}</small>${route.vehicle_id && route.status_code === 'in_progress' ? `<button class="chip" type="button" data-complete-route="${escapeHtml(route.route)}">Finalizar ruta y liberar vehículo</button>` : ''}</article>`).join('')}</section><div id="route-result"></div>`
+    return `${pageIntro('Rutas y recorridos · Route Optimization Service :8102', 'Optimización de rutas', data.demoMode ? 'Recorridos ilustrativos; generar rutas reales requiere conectar el servicio.' : 'Las rutas nuevas se asignan a un vehículo operativo disponible. Al iniciarlas y finalizarlas se actualiza su estado y se genera una notificación.', `<span class="live-pill"><i></i> ${data.demoMode ? 'Muestra' : 'Dijkstra'}</span>`)}<section class="panel city-map-panel"><div class="panel-header"><h3>${data.demoMode ? 'Recorrido de muestra' : 'Recorrido en vivo'}</h3><span class="live-pill"><i></i> ${data.demoMode ? 'Simulación' : 'Camino mínimo'}</span></div><div id="routes-map" class="city-map" role="region" aria-label="${data.demoMode ? 'Mapa ilustrativo de rutas en Montería' : 'Camiones recorriendo la ruta de Dijkstra en Montería'}"></div><div id="routes-live-list" class="fleet-live-list"></div></section><form class="route-optimizer panel" id="route-optimizer"><label>Zona<select name="zone"><option value="">Todas las zonas</option>${[...new Set(containers.map(container => container.zone))].map(zone => `<option>${zone}</option>`).join('')}</select></label><label>Máximo de paradas<input name="max_stops" type="number" min="1" max="50" value="10" /></label><button class="primary-btn" type="submit">Generar ruta óptima</button></form><section class="route-grid">${routes.map(route => `<article class="info-card route-card"><div class="route-topline"><strong>${route.route}</strong><span class="status ${route.color}">${route.status}</span></div><p>${route.area}</p><small>ETA: ${route.eta} · Unidad: ${escapeHtml(route.vehicle_plate || 'Sin asignar')}</small>${route.vehicle_id && route.status_code === 'in_progress' ? `<button class="chip" type="button" data-complete-route="${escapeHtml(route.route)}">Finalizar ruta y liberar vehículo</button>` : ''}</article>`).join('')}</section><div id="route-result"></div>`
   }
 
   if (view === 'containers') {
     return `
       ${pageIntro('Contenedores · Container Service :8101', 'Contenedores en Montería', 'Ubica cada contenedor sobre el mapa de Montería, Córdoba. Haz clic en el mapa para marcar uno nuevo.', '<button class="primary-btn" id="focus-container-form" type="button">＋ Registrar contenedor</button>')}
-      <section class="stats-grid service-stats"><article class="stat-card"><span>Contenedores totales</span><strong>${containers.length}</strong><em class="positive-text">● Inventario</em></article><article class="stat-card"><span>Disponibles</span><strong>${containers.filter(container => container.status !== 'critical').length}</strong><em class="positive-text">● Operativos</em></article><article class="stat-card"><span>En mantenimiento</span><strong>1</strong><em class="neutral-text">● Programados</em></article><article class="stat-card"><span>Fuera de servicio</span><strong>${containers.filter(container => container.status === 'critical').length}</strong><em class="negative-text">● Atención</em></article></section>
+      <section class="stats-grid service-stats"><article class="stat-card"><span>Contenedores totales</span><strong>${containers.length}</strong><em class="positive-text">● Inventario</em></article><article class="stat-card"><span>Disponibles</span><strong>${containers.filter(container => !container.status || container.status === 'normal').length}</strong><em class="positive-text">● Operativos</em></article><article class="stat-card"><span>En mantenimiento</span><strong>${containers.filter(container => container.status === 'attention').length}</strong><em class="neutral-text">● Programados</em></article><article class="stat-card"><span>Fuera de servicio</span><strong>${containers.filter(container => container.status === 'critical').length}</strong><em class="negative-text">● Atención</em></article></section>
       <section class="panel city-map-panel"><div class="panel-header"><h3>Mapa de Montería</h3><span class="live-pill"><i></i> Córdoba, Colombia</span></div><div id="containers-map" class="city-map" role="region" aria-label="Mapa de contenedores en Montería"></div><p class="form-hint">Los puntos verdes están operativos y los rojos requieren atención. Un clic en el mapa copia la latitud y la longitud al formulario.</p></section>
       <form class="container-form panel" id="container-form">
         <input type="hidden" name="id" />
@@ -753,9 +790,9 @@ function getViewMarkup(view, data) {
     ${dayCloseMarkup()}`
   if (view === 'fleet') {
     return `
-      ${pageIntro('Recolección de residuos · Fleet Service :8103', 'Flota en Montería', 'Los vehículos en operación recorren la ciudad en tiempo real y vacían los contenedores llenos. Los que están en revisión permanecen en el patio.', '<span class="live-pill"><i></i> Tiempo real</span>')}
-      <section class="stats-grid service-stats"><article class="stat-card"><span>Vehículos totales</span><strong>${fleet.length}</strong><em class="positive-text">● Registrados</em></article><article class="stat-card"><span>En operación</span><strong>${fleet.filter(vehicle => vehicleIsMoving(vehicle.state)).length}</strong><em class="positive-text">● En movimiento</em></article><article class="stat-card"><span>En ruta</span><strong>${fleet.filter(vehicle => vehicleIsMoving(vehicle.state)).length}</strong><em class="neutral-text">● En servicio</em></article><article class="stat-card"><span>En revisión</span><strong>${fleet.filter(vehicle => !vehicleIsMoving(vehicle.state)).length}</strong><em class="negative-text">● Taller</em></article></section>
-      <section class="panel city-map-panel"><div class="panel-header"><h3>Mapa de la flota</h3><span class="live-pill"><i></i> Montería, Córdoba</span></div><div id="fleet-map" class="city-map" role="region" aria-label="Mapa en tiempo real de la flota en Montería"></div><div id="fleet-live-list" class="fleet-live-list"></div><p class="form-hint">La línea verde es la calle real. Los camiones la recorren despacio, a 22 km/h, y no cruzan las manzanas en línea recta.</p></section>
+      ${pageIntro('Recolección de residuos · Fleet Service :8103', 'Flota en Montería', data.demoMode ? 'Vehículos y recorridos ilustrativos; la posición real requiere conexión con Fleet Service.' : 'Los vehículos en operación recorren la ciudad en tiempo real y vacían los contenedores llenos. Los que están en revisión permanecen en el patio.', `<span class="live-pill"><i></i> ${data.demoMode ? 'Muestra' : 'Tiempo real'}</span>`)}
+      <section class="stats-grid service-stats"><article class="stat-card"><span>Vehículos totales</span><strong>${fleet.length}</strong><em class="positive-text">● Registrados</em></article><article class="stat-card"><span>En operación</span><strong>${fleet.filter(vehicle => vehicleIsMoving(vehicle.state)).length}</strong><em class="positive-text">● En movimiento</em></article><article class="stat-card"><span>En ruta</span><strong>${fleet.filter(vehicle => String(vehicle.state).toLowerCase() === 'en_ruta').length}</strong><em class="neutral-text">● En servicio</em></article><article class="stat-card"><span>En revisión</span><strong>${fleet.filter(vehicle => !vehicleIsMoving(vehicle.state)).length}</strong><em class="negative-text">● Taller</em></article></section>
+      <section class="panel city-map-panel"><div class="panel-header"><h3>Mapa de la flota</h3><span class="live-pill"><i></i> Montería, Córdoba</span></div><div id="fleet-map" class="city-map" role="region" aria-label="${data.demoMode ? 'Mapa ilustrativo de la flota en Montería' : 'Mapa en tiempo real de la flota en Montería'}"></div><div id="fleet-live-list" class="fleet-live-list"></div><p class="form-hint">${data.demoMode ? 'Las posiciones y trayectorias son una simulación para mostrar la interfaz.' : 'La línea verde es la calle real. Los camiones la recorren despacio, a 22 km/h, y no cruzan las manzanas en línea recta.'}</p></section>
       <div class="service-banner"><strong>Seguimiento de camiones y conductores</strong><span>Actualiza carga, estado y asignación desde Fleet Service.</span></div>
       <form class="panel service-form" id="fleet-form">
         <h3>Registrar vehículo</h3>
@@ -844,9 +881,9 @@ function getViewMarkup(view, data) {
       <article class="operation-status panel"><div class="panel-header"><h3>Estado de la operación</h3><span class="status-leaf">◒</span></div><div class="status-ring"><strong>${ops.efficiency_pct}%</strong><small>Bajo control</small></div><div class="status-legend"><span><i class="dot green"></i>En calle <b>${ops.fleet_operating}</b></span><span><i class="dot amber"></i>Por recoger <b>${ops.urgent_containers}</b></span><span><i class="dot red"></i>En taller <b>${ops.fleet_stopped}</b></span></div></article>
     </section>
 
-    <section class="shortcut-grid"><button class="shortcut-card" data-view="containers"><span>▣</span><strong>${containers.length}</strong><small>Contenedores activos</small><i>›</i><div class="shortcut-lines"><em>● Disponibles <b>${Math.max(containers.length - 1, 0)}</b></em><em>● En mantenimiento <b>1</b></em></div></button><button class="shortcut-card" data-view="routes"><span>⌖</span><strong>${routes.length}</strong><small>Rutas activas <b class="today-tag">Hoy</b></small><i>›</i><div class="mini-route-progress"><b></b></div><em>22 completadas <b>4 en curso</b></em></button><button class="shortcut-card" data-view="fleet"><span>▤</span><strong>${fleet.length}</strong><small>Servicios urbanos</small><i>›</i><div class="shortcut-lines"><em>♧ Limpieza de calles <b>3</b></em><em>⌁ Mantenimiento urbano <b>2</b></em></div></button><button class="shortcut-card" data-view="notifications"><span>♧</span><strong>${alerts.length}</strong><small>Alertas activas <b class="critical-tag">${alerts.filter(alert => alert.toLowerCase().includes('crít')).length || 2} críticas</b></small><i>›</i><div class="shortcut-lines"><em>◉ Contenedor fuera de servicio <b>1h</b></em><em>◌ Retraso en ruta <b>2h</b></em></div></button></section>
+    <section class="shortcut-grid"><button class="shortcut-card" data-view="containers"><span>▣</span><strong>${containers.length}</strong><small>Contenedores activos</small><i>›</i><div class="shortcut-lines"><em>● Disponibles <b>${containers.filter(container => !container.status || container.status === 'normal').length}</b></em><em>● En mantenimiento <b>${containers.filter(container => container.status === 'attention').length}</b></em></div></button><button class="shortcut-card" data-view="routes"><span>⌖</span><strong>${routes.filter(route => route.status_code === 'in_progress').length}</strong><small>Rutas activas <b class="today-tag">Hoy</b></small><i>›</i><div class="mini-route-progress"><b></b></div><em>${routes.filter(route => route.status_code === 'completed').length} completadas <b>${routes.filter(route => route.status_code === 'in_progress').length} en curso</b></em></button><button class="shortcut-card" data-view="fleet"><span>▤</span><strong>${fleet.length}</strong><small>Vehículos registrados</small><i>›</i><div class="shortcut-lines"><em>♧ En operación <b>${fleet.filter(vehicle => vehicleIsMoving(vehicle.state)).length}</b></em><em>⌁ En revisión <b>${fleet.filter(vehicle => !vehicleIsMoving(vehicle.state)).length}</b></em></div></button><button class="shortcut-card" data-view="notifications"><span>♧</span><strong>${alerts.length}</strong><small>Alertas activas <b class="critical-tag">${alerts.filter(alert => /cr[ií]tic|desbord/i.test(alert)).length} críticas</b></small><i>›</i><div class="shortcut-lines"><em>${alerts.length ? `${alerts.length} registradas` : 'Sin alertas nuevas'}</em></div></button></section>
 
-    <section class="operations-lower"><article class="panel waste-capacity"><div class="panel-header"><h3>Prioridad de recolección</h3><button class="chip" id="open-collect-priority" type="button">Ir a vaciar</button></div>${(ops.priority || []).length ? ops.priority.map(item => `<div class="waste-row"><span><i class="dot ${Number(item.fill_level) >= 90 ? 'red' : 'amber'}"></i>${item.code}</span><div class="progress-wrap"><div class="progress-bar"><span style="width:${item.fill_level}%"></span></div></div><b>${item.fill_level}%</b><small>${item.collected_kg || Math.round(Number(item.fill_level) * 1.1)} kg</small></div>`).join('') : '<p class="form-hint">Ningún contenedor está listo para recoger.</p>'}</article><article class="panel live-routes"><div class="panel-header"><h3>⌖ Rutas activas <small>(en tiempo real)</small></h3><button class="chip">Ver todas</button></div><div class="route-table"><div class="route-table-head"><span>Ruta</span><span>Zona</span><span>Estado</span><span>Progreso</span><span>Actualización</span></div>${routes.slice(0, 4).map(route => `<div class="route-table-row"><strong>▣ ${route.route}</strong><span>${route.area}</span><span><i class="dot green"></i>${route.status}</span><div class="table-progress"><b style="width:${route.status === 'in_progress' ? 64 : 32}%"></b></div><time>${route.eta}</time></div>`).join('')}</div></article></section>
+    <section class="operations-lower"><article class="panel waste-capacity"><div class="panel-header"><h3>Prioridad de recolección</h3><button class="chip" id="open-collect-priority" type="button">Ir a vaciar</button></div>${(ops.priority || []).length ? ops.priority.map(item => `<div class="waste-row"><span><i class="dot ${Number(item.fill_level) >= 90 ? 'red' : 'amber'}"></i>${item.code}</span><div class="progress-wrap"><div class="progress-bar"><span style="width:${item.fill_level}%"></span></div></div><b>${item.fill_level}%</b><small>${item.collected_kg || Math.round(Number(item.fill_level) * 1.1)} kg</small></div>`).join('') : '<p class="form-hint">Ningún contenedor está listo para recoger.</p>'}</article><article class="panel live-routes"><div class="panel-header"><h3>⌖ Rutas activas <small>(${data.demoMode ? 'muestra' : 'en tiempo real'})</small></h3><button class="chip">Ver todas</button></div><div class="route-table"><div class="route-table-head"><span>Ruta</span><span>Zona</span><span>Estado</span><span>Progreso</span><span>Actualización</span></div>${routes.slice(0, 4).map(route => `<div class="route-table-row"><strong>▣ ${route.route}</strong><span>${route.area}</span><span><i class="dot green"></i>${route.status}</span><div class="table-progress"><b style="width:${route.status_code === 'in_progress' ? 64 : 32}%"></b></div><time>${route.eta}</time></div>`).join('')}</div></article></section>
   `
 }
 
@@ -860,10 +897,13 @@ async function renderDashboard(selectedView = 'dashboard') {
 
   try {
     const data = await fetchDashboardData()
+    const demoNotice = data.demoMode
+      ? '<div class="demo-mode-banner" role="status">Modo demo · datos ilustrativos; las acciones de escritura están desactivadas.</div>'
+      : ''
 
     const reuseShell = Boolean(app.querySelector('.dashboard-shell'))
     if (reuseShell) {
-      app.querySelector('.main-panel').innerHTML = getViewMarkup(selectedView, data)
+      app.querySelector('.main-panel').innerHTML = `${demoNotice}${getViewMarkup(selectedView, data)}`
       app.querySelectorAll('.menu-item').forEach(button => button.classList.toggle('active', button.dataset.view === selectedView))
     } else {
     app.innerHTML = `
@@ -922,12 +962,14 @@ async function renderDashboard(selectedView = 'dashboard') {
         </aside>
 
         <main class="main-panel">
-          ${getViewMarkup(selectedView, data)}
+          ${demoNotice}${getViewMarkup(selectedView, data)}
         </main>
       </div>
     `
 
     }
+
+    if (data.demoMode) enforceDemoReadOnly()
 
     if (selectedView === 'dashboard') {
       const notificationCard = app.querySelector('.shortcut-card[data-view="notifications"]')
@@ -973,6 +1015,7 @@ async function renderDashboard(selectedView = 'dashboard') {
     }
 
     bindTopbarPanels()
+    bindOperationalSearch()
 
     if (!reuseShell) {
     const topbarExport = app.querySelector('.topbar-actions .secondary-btn')
@@ -984,7 +1027,6 @@ async function renderDashboard(selectedView = 'dashboard') {
     if (topbarAlert) {
       topbarAlert.addEventListener('click', () => {
         renderDashboard('notifications')
-        showToast('Alerta creada y publicada en el centro de control')
       })
     }
     }
@@ -1052,7 +1094,7 @@ async function renderDashboard(selectedView = 'dashboard') {
       } catch (error) { showToast(error.message, 'error') }
     })
 
-    if (selectedView === 'sensors') {
+    if (selectedView === 'sensors' && !data.demoMode) {
       const nextLabel = app.querySelector('#sensor-next-tick')
       let lastEpoch = Math.floor(Date.now() / 1000 / SENSOR_TICK_SECONDS)
       const paintCountdown = () => {
@@ -1217,8 +1259,8 @@ async function renderDashboard(selectedView = 'dashboard') {
     })
 
     if (selectedView === 'cierre') fillDayClose()
-    if (selectedView === 'reporting') fetchIncidents().then(incidents => mountIncidentDesk(incidents.data, data.fleet, message => showToast(message, 'error'))).catch(error => showToast(error.message, 'error'))
-    if (selectedView === 'sensors') syncSensorCycle().catch(error => showToast(error.message, 'error'))
+    if (selectedView === 'reporting') fetchIncidents().then(incidents => mountIncidentDesk(incidents.data, data.fleet, message => showToast(message, 'error'), data.demoMode)).catch(error => showToast(error.message, 'error'))
+    if (selectedView === 'sensors' && !data.demoMode) syncSensorCycle().catch(error => showToast(error.message, 'error'))
     if (selectedView === 'citizens') mountIncentives()
 
     const donationsList = app.querySelector('#donations-list')
@@ -1267,6 +1309,7 @@ async function renderDashboard(selectedView = 'dashboard') {
           const result = await fetchDonations()
           donations = result.data || []
           renderDonations()
+          if (data.demoMode) enforceDemoReadOnly()
         } catch (error) {
           donationsList.innerHTML = `<div class="donation-review-error">${escapeHtml(error.message || 'No se pudieron cargar las donaciones.')}</div>`
         }
@@ -1337,6 +1380,7 @@ async function renderDashboard(selectedView = 'dashboard') {
         try {
           const incidents = await fetchIncidents()
           incidentsList.innerHTML = incidents.data.length ? incidents.data.map(incident => `<div class="channel-row"><span><strong>${incident.category}</strong><small>${incident.description}</small></span><select class="incident-status" data-incident-id="${incident.id}"><option value="reported" ${incident.status === 'reported' ? 'selected' : ''}>Reportada</option><option value="assigned" ${incident.status === 'assigned' ? 'selected' : ''}>Asignada</option><option value="resolved" ${incident.status === 'resolved' ? 'selected' : ''}>Resuelta</option><option value="rejected" ${incident.status === 'rejected' ? 'selected' : ''}>Rechazada</option></select></div>`).join('') : '<p class="form-hint">No hay incidencias registradas.</p>'
+          if (data.demoMode) enforceDemoReadOnly()
           incidentsList.querySelectorAll('.incident-status').forEach(select => {
             select.addEventListener('change', async event => {
               try {

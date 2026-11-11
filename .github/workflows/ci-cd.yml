@@ -1,20 +1,28 @@
-name: CI and container publishing
+name: CI/CD
 
 on:
+  pull_request:
+    branches: [main]
   push:
     branches: [main]
-  pull_request:
   workflow_dispatch:
 
 permissions:
   contents: read
 
 jobs:
-  quality:
+  quality-and-test:
+    name: Quality and tests
     runs-on: ubuntu-latest
+    env:
+      SUPABASE_URL: https://example.supabase.co
+      SUPABASE_SERVICE_ROLE_KEY: replace_me
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
         with:
           python-version: "3.12"
           cache: pip
@@ -22,26 +30,44 @@ jobs:
             backend/requirements.txt
             services/requirements.txt
             requirements-dev.txt
+
       - name: Install Python dependencies
-        run: pip install -r backend/requirements.txt -r services/requirements.txt -r requirements-dev.txt
+        run: python -m pip install -r backend/requirements.txt -r services/requirements.txt -r requirements-dev.txt
+
       - name: Lint Python
-        run: flake8 backend services tests --select=E9,F63,F7,F82 --max-line-length=120
-      - name: Check formatting
-        run: black --check services/start.py services/routes/optimization.py tests
-      - name: Test route optimization
-        run: pytest -q
-      - uses: actions/setup-node@v4
+        run: python -m flake8 backend services tests --select=E9,F63,F7,F82 --max-line-length=120
+
+      - name: Check Python formatting
+        run: python -m black --check services/start.py services/routes/optimization.py tests
+
+      - name: Run Python tests
+        run: python -m pytest -q
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
         with:
           node-version: 22
           cache: npm
           cache-dependency-path: frontend/package-lock.json
+
+      - name: Install frontend dependencies
+        working-directory: frontend
+        run: npm ci
+
+      - name: Run frontend tests
+        working-directory: frontend
+        run: npm test
+
       - name: Build frontend
         working-directory: frontend
-        run: npm ci && npm run build
+        run: npm run build
 
-  publish-images:
-    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
-    needs: quality
+  build-and-publish:
+    name: Build and publish ${{ matrix.image }}
+    if: >-
+      (github.event_name == 'push' && github.ref == 'refs/heads/main') ||
+      (github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main')
+    needs: quality-and-test
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -50,65 +76,66 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - name: frontend
+          - image: wastewise
+            dockerfile: Dockerfile
+            context: .
+          - image: frontend
             dockerfile: frontend/Dockerfile
             context: frontend
-            module: ""
-          - name: backend
+          - image: backend
             dockerfile: backend/Dockerfile
             context: .
-            module: ""
-          - name: container-service
-            dockerfile: services/Dockerfile
-            context: .
-            module: services.containers.main
-          - name: route-service
-            dockerfile: services/Dockerfile
-            context: .
-            module: services.routes.main
-          - name: fleet-service
-            dockerfile: services/Dockerfile
-            context: .
-            module: services.fleet.main
-          - name: citizen-service
-            dockerfile: services/Dockerfile
-            context: .
-            module: services.citizens.main
-          - name: sensor-service
-            dockerfile: services/Dockerfile
-            context: .
-            module: services.sensors.main
-          - name: reporting-service
-            dockerfile: services/Dockerfile
-            context: .
-            module: services.reporting.main
-          - name: notification-service
-            dockerfile: services/Dockerfile
-            context: .
-            module: services.notifications.main
-          - name: analytics-service
-            dockerfile: services/Dockerfile
-            context: .
-            module: services.analytics.main
     steps:
-      - uses: actions/checkout@v4
-      - uses: docker/setup-buildx-action@v3
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
       - name: Normalize image namespace
         id: image
+        env:
+          REPOSITORY: ${{ github.repository }}
+          IMAGE_NAME: ${{ matrix.image }}
         shell: bash
-        run: echo "namespace=ghcr.io/${GITHUB_REPOSITORY,,}" >> "$GITHUB_OUTPUT"
-      - uses: docker/login-action@v3
+        run: echo "name=ghcr.io/${REPOSITORY,,}/${IMAGE_NAME}" >> "$GITHUB_OUTPUT"
+
+      - name: Log in to GitHub Container Registry
+        uses: docker/login-action@v3
         with:
           registry: ghcr.io
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
-      - uses: docker/build-push-action@v6
+
+      - name: Build and publish image
+        uses: docker/build-push-action@v6
         with:
           context: ${{ matrix.context }}
           file: ${{ matrix.dockerfile }}
           push: true
           tags: |
-            ${{ steps.image.outputs.namespace }}/${{ matrix.name }}:${{ github.sha }}
-            ${{ steps.image.outputs.namespace }}/${{ matrix.name }}:latest
-          build-args: |
-            SERVICE_MODULE=${{ matrix.module }}
+            ${{ steps.image.outputs.name }}:${{ github.sha }}
+            ${{ steps.image.outputs.name }}:main
+          cache-from: type=gha,scope=${{ matrix.image }}
+          cache-to: type=gha,mode=max,scope=${{ matrix.image }}
+
+  deploy:
+    name: Render handoff (not deployment verification)
+    if: >-
+      (github.event_name == 'push' && github.ref == 'refs/heads/main') ||
+      (github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main')
+    needs: build-and-publish
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - name: Record Render deployment handoff
+        shell: bash
+        run: |
+          {
+            echo "### Render deployment handoff"
+            echo
+            echo "The repository's Render manifests use source-based deployments with autoDeployTrigger: checksPass."
+            echo "This job intentionally does not call a Deploy Hook or claim that Render deployed the commit."
+            echo "Confirm the deployment and its health in the Render dashboard; see docs/CI_CD_GITHUB_ACTIONS.md."
+          } >> "$GITHUB_STEP_SUMMARY"

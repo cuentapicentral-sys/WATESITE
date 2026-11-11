@@ -17,9 +17,27 @@ def test_collection_status_thresholds():
 def test_snapshot_prioritizes_full_containers_and_hides_fake_totals():
     snapshot = operational_snapshot(
         [
-            {"id": "1", "code": "C-240", "zone": "Centro", "fill_level": 92, "status": "critical"},
-            {"id": "2", "code": "C-155", "zone": "Norte", "fill_level": 64, "status": "normal"},
-            {"id": "3", "code": "C-311", "zone": "Sur", "fill_level": 80, "status": "attention"},
+            {
+                "id": "1",
+                "code": "C-240",
+                "zone": "Centro",
+                "fill_level": 92,
+                "status": "critical",
+            },
+            {
+                "id": "2",
+                "code": "C-155",
+                "zone": "Norte",
+                "fill_level": 64,
+                "status": "normal",
+            },
+            {
+                "id": "3",
+                "code": "C-311",
+                "zone": "Sur",
+                "fill_level": 80,
+                "status": "attention",
+            },
         ],
         routes=[{"status": "in_progress"}, {"status": "scheduled"}],
         vehicles=[{"state": "en_ruta"}, {"state": "revision"}],

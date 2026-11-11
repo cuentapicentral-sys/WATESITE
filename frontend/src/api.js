@@ -1,3 +1,6 @@
+import { getSession, isDemoSession } from './auth.js'
+import { createDemoDashboardData, createDemoDayClose, createDemoMunicipalAnalytics, createDemoServiceData } from './demo-data.js'
+
 const getBaseApiUrl = () => {
   if (import.meta.env.VITE_API_BASE_URL) return import.meta.env.VITE_API_BASE_URL;
   if (typeof window !== 'undefined' && window.location.hostname === 'localhost') return '/api';
@@ -21,6 +24,14 @@ const getServiceBaseUrl = service => SERVICE_API_PREFIX ? `${SERVICE_API_PREFIX}
 
 async function serviceRequest(service, path, options = {}) {
   const serviceUrl = getServiceBaseUrl(service);
+  if (isDemoSession()) {
+    if ((options.method || 'GET').toUpperCase() !== 'GET') {
+      throw new Error('El modo demostración es de solo lectura; no se guardaron cambios.')
+    }
+    const sample = createDemoServiceData(service, path)
+    if (sample) return sample
+    throw new Error(`No hay datos de demostración para ${service}${path}.`)
+  }
   try {
     const response = await fetch(`${serviceUrl}${path}`, {
       ...options,
@@ -145,6 +156,7 @@ export function redeemCatalogReward(payload) {
 }
 
 export function fetchDayClose() {
+  if (isDemoSession()) return Promise.resolve(createDemoDayClose())
   return fetch(`${API_BASE_URL}/day-close`).then(async response => {
     if (!response.ok) throw new Error('No se pudo calcular el cierre del día');
     return response.json();
@@ -152,6 +164,7 @@ export function fetchDayClose() {
 }
 
 export function fetchMunicipalAnalytics() {
+  if (isDemoSession()) return Promise.resolve(createDemoMunicipalAnalytics())
   return fetch(`${API_BASE_URL}/analytics`).then(async response => {
     if (!response.ok) throw new Error('No se pudo calcular la analítica municipal');
     return response.json();
@@ -165,21 +178,32 @@ export function redeemReward(citizenId, rewardId) {
 
 let dashboardCache = null;
 let dashboardCacheAt = 0;
+let dashboardCacheOwner = null;
 
 export function invalidateDashboard() {
   dashboardCache = null;
+  dashboardCacheOwner = null;
 }
 
 function refreshDashboard() {
+  if (isDemoSession()) return;
   fetch(`${API_BASE_URL}/dashboard`).then(async response => {
     if (!response.ok) return;
     dashboardCache = await response.json();
     dashboardCacheAt = Date.now();
+    dashboardCacheOwner = getSession()?.email || null;
   }).catch(() => {});
 }
 
 export async function fetchDashboardData(force = false) {
-  if (!force && dashboardCache) {
+  const sessionEmail = getSession()?.email || null;
+  if (isDemoSession()) {
+    dashboardCache = createDemoDashboardData();
+    dashboardCacheAt = Date.now();
+    dashboardCacheOwner = sessionEmail;
+    return dashboardCache;
+  }
+  if (!force && dashboardCache && dashboardCacheOwner === sessionEmail) {
     if (Date.now() - dashboardCacheAt >= 25000) refreshDashboard();
     return dashboardCache;
   }
@@ -189,6 +213,7 @@ export async function fetchDashboardData(force = false) {
   }
   dashboardCache = await response.json();
   dashboardCacheAt = Date.now();
+  dashboardCacheOwner = sessionEmail;
   return dashboardCache;
 }
 export function registerQrScan(citizenId, payload) {
@@ -200,6 +225,7 @@ export function submitRecyclingPhoto(payload) {
 }
 
 export async function createContainer(container) {
+  assertWritableSession();
   invalidateDashboard();
   const response = await fetch(`${API_BASE_URL}/supabase/containers`, {
     method: 'POST',
@@ -211,6 +237,7 @@ export async function createContainer(container) {
 }
 
 export async function updateContainer(id, container) {
+  assertWritableSession();
   invalidateDashboard();
   const response = await fetch(`${API_BASE_URL}/supabase/containers/${id}`, {
     method: 'PATCH',
@@ -222,8 +249,15 @@ export async function updateContainer(id, container) {
 }
 
 export async function deleteContainer(id) {
+  assertWritableSession();
   invalidateDashboard();
   const response = await fetch(`${API_BASE_URL}/supabase/containers/${id}`, { method: 'DELETE' });
   if (!response.ok) throw new Error('No se pudo eliminar el contenedor');
   return response.json();
+}
+
+function assertWritableSession() {
+  if (isDemoSession()) {
+    throw new Error('El modo demostración es de solo lectura; no se guardaron cambios.')
+  }
 }

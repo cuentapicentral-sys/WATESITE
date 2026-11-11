@@ -1,7 +1,13 @@
 from datetime import datetime
 from zoneinfo import ZoneInfo
 
-from services.fieldwork import assigned_vehicle, build_day_close, catalog_item, citizen_status, with_vehicle
+from services.fieldwork import (
+    assigned_vehicle,
+    build_day_close,
+    catalog_item,
+    citizen_status,
+    with_vehicle,
+)
 
 
 def test_vehicle_tag_roundtrip():
@@ -13,12 +19,24 @@ def test_vehicle_tag_roundtrip():
 
 def test_catalog_and_day_close():
     assert catalog_item("bolsa")["points_cost"] == 40
-    today = datetime.now(ZoneInfo("America/Bogota")).date().isoformat() + "T08:00:00-05:00"
+    today = (
+        datetime.now(ZoneInfo("America/Bogota")).date().isoformat() + "T08:00:00-05:00"
+    )
     report = build_day_close(
-        [{"title": "Recolección confirmada · CT-001", "description": "Se retiraron 88 kg", "created_at": today}],
+        [
+            {
+                "title": "Recolección confirmada · CT-001",
+                "description": "Se retiraron 88 kg",
+                "created_at": today,
+            }
+        ],
         [
             {"status": "resolved", "category": "Acumulación", "created_at": today},
-            {"status": "reported", "category": "Donación de reciclaje", "created_at": today},
+            {
+                "status": "reported",
+                "category": "Donación de reciclaje",
+                "created_at": today,
+            },
         ],
         [{"points": 15}],
     )

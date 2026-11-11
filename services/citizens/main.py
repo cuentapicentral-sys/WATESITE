@@ -53,6 +53,11 @@ def present_citizen(citizen: dict) -> dict:
     return {**citizen, "name": public_name(citizen["name"]), "phone": phone_from_name(citizen["name"])}
 
 
+@app.get("/health")
+def health():
+    return {"status": "ok", "service": "citizen-service"}
+
+
 @app.get("/recycling-points")
 def list_recycling_points():
     return {"data": RECYCLING_POINTS, "points_per_photo": PHOTO_POINTS}

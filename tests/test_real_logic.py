@@ -39,7 +39,15 @@ def test_dashboard_returns_container_rows():
 def test_dashboard_returns_registered_fleet_vehicles():
     from backend import main as backend_main
 
-    vehicles = [{"id": "vehicle-1", "plate": "TR-88", "type": "Camión", "state": "en ruta", "load_level": 56}]
+    vehicles = [
+        {
+            "id": "vehicle-1",
+            "plate": "TR-88",
+            "type": "Camión",
+            "state": "en ruta",
+            "load_level": 56,
+        }
+    ]
 
     def query(table_name, _select_fields, _fallback):
         return vehicles if table_name == "vehicles" else []
@@ -47,14 +55,16 @@ def test_dashboard_returns_registered_fleet_vehicles():
     with patch.object(backend_main, "safe_supabase_query", side_effect=query):
         dashboard = backend_main.build_dashboard_data()
 
-    assert dashboard["fleet"] == [{
-        "id": "TR-88",
-        "plate": "TR-88",
-        "type": "Camión",
-        "state": "en ruta",
-        "load_level": 56,
-        "load": "56%",
-    }]
+    assert dashboard["fleet"] == [
+        {
+            "id": "TR-88",
+            "plate": "TR-88",
+            "type": "Camión",
+            "state": "en ruta",
+            "load_level": 56,
+            "load": "56%",
+        }
+    ]
 
 
 def test_fill_notifications_fire_only_when_crossing_thresholds():
@@ -74,10 +84,34 @@ def test_routes_select_only_an_available_compatible_vehicle():
     from services.routes.main import select_available_vehicle
 
     vehicles = [
-        {"id": "bike", "plate": "BIKE-01", "type": "Bicicleta electrica", "state": "operativo", "load_level": 0},
-        {"id": "busy", "plate": "TR-12", "type": "Camión compactador", "state": "operativo", "load_level": 10},
-        {"id": "available", "plate": "TR-88", "type": "Furgón de mantenimiento", "state": "operativo", "load_level": 30},
-        {"id": "moving", "plate": "TR-22", "type": "Camión compactador", "state": "en_ruta", "load_level": 0},
+        {
+            "id": "bike",
+            "plate": "BIKE-01",
+            "type": "Bicicleta electrica",
+            "state": "operativo",
+            "load_level": 0,
+        },
+        {
+            "id": "busy",
+            "plate": "TR-12",
+            "type": "Camión compactador",
+            "state": "operativo",
+            "load_level": 10,
+        },
+        {
+            "id": "available",
+            "plate": "TR-88",
+            "type": "Furgón de mantenimiento",
+            "state": "operativo",
+            "load_level": 30,
+        },
+        {
+            "id": "moving",
+            "plate": "TR-22",
+            "type": "Camión compactador",
+            "state": "en_ruta",
+            "load_level": 0,
+        },
     ]
 
     chosen = select_available_vehicle(vehicles, {"busy"})
@@ -89,13 +123,15 @@ def test_routes_select_only_an_available_compatible_vehicle():
 def test_dashboard_routes_include_assigned_vehicle():
     from backend import main as backend_main
 
-    routes = [{
-        "route_code": "OPT-001",
-        "area": "Centro",
-        "status": "in_progress",
-        "vehicle_id": "vehicle-1",
-        "vehicle_plate": "TR-88",
-    }]
+    routes = [
+        {
+            "route_code": "OPT-001",
+            "area": "Centro",
+            "status": "in_progress",
+            "vehicle_id": "vehicle-1",
+            "vehicle_plate": "TR-88",
+        }
+    ]
 
     def query(table_name, _select_fields, _fallback):
         return routes if table_name == "routes" else []
