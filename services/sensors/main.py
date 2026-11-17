@@ -6,8 +6,10 @@ from services.database import supabase
 from services.events import publish_event
 from services.notifications.logic import notify_fill_transition
 from services.sensors.cycle import apply_sensor_cycle
+from services.metrics import instrument_app
 
 app = FastAPI(title="WasteWise Sensor Ingestion Service", version="1.0.0")
+instrument_app(app, "sensors")
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],

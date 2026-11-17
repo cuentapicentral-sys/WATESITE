@@ -8,6 +8,7 @@ from backend.supabase_client import supabase
 from services.containers.main import normalize_container_type
 from services.fieldwork import route_eta_for
 from services.operations import operational_snapshot
+from services.metrics import instrument_app
 
 
 @asynccontextmanager
@@ -35,6 +36,7 @@ async def lifespan(_app):
 
 
 app = FastAPI(title="WasteWise API", version="1.0.0", lifespan=lifespan)
+instrument_app(app, "wastewise_backend")
 app.include_router(supabase_router)
 
 app.add_middleware(

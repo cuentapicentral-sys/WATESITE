@@ -7,8 +7,10 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from services.database import supabase
 from services.events import consume_events
+from services.metrics import instrument_app
 
 app = FastAPI(title="WasteWise Municipal Analytics Service", version="1.0.0")
+instrument_app(app, "analytics")
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],

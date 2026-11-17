@@ -16,8 +16,10 @@ from services.citizens.points import (
 from services.database import supabase
 from services.events import publish_event
 from services.fieldwork import REWARD_CATALOG, catalog_item
+from services.metrics import instrument_app
 
 app = FastAPI(title="WasteWise Citizen Service", version="1.0.0")
+instrument_app(app, "citizens")
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],

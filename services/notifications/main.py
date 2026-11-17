@@ -5,8 +5,10 @@ from pydantic import BaseModel, Field
 from services.database import supabase
 from services.events import publish_event
 from services.notifications.logic import create_notification
+from services.metrics import instrument_app
 
 app = FastAPI(title="WasteWise Notification Service", version="1.0.0")
+instrument_app(app, "notifications")
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],

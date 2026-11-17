@@ -9,11 +9,13 @@ from services.database import supabase
 from services.events import publish_event
 from services.fieldwork import assigned_vehicle, citizen_status, with_vehicle
 from services.notifications.logic import create_notification
+from services.metrics import instrument_app
 
 TRACKING_RE = re.compile(r"\[(RAD-[A-Z0-9]{6})\]")
 TRACKING_ALPHABET = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789"
 
 app = FastAPI(title="WasteWise Citizen Reporting Service", version="1.0.0")
+instrument_app(app, "reporting")
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],

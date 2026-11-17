@@ -275,3 +275,7 @@ La extracción conserva el historial Git de cada carpeta de servicio. Los direct
 La guía con arquitectura, configuración, comandos, evidencia positiva/negativa y plantilla de reflexión está en [docs/CI_CD_GITHUB_ACTIONS.md](docs/CI_CD_GITHUB_ACTIONS.md).
 
 El acceso demo del frontend permite ver un dashboard con datos ilustrativos locales sin iniciar el backend ni conectarse a Supabase. Las operaciones que guardan cambios sí requieren los servicios correspondientes.
+
+### Momento 3: pruebas y observabilidad
+
+El proyecto incluye cobertura pytest-cov, `/metrics` en el backend y los ocho microservicios, Prometheus y Grafana provisionado. Consulta [docs/MOMENTO_3_ENTREGA_FINAL.md](docs/MOMENTO_3_ENTREGA_FINAL.md) para la matriz de cumplimiento, comandos y checklist de evidencias.

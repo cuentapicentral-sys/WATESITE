@@ -4,8 +4,10 @@ from pydantic import BaseModel, Field
 
 from services.database import supabase
 from services.events import publish_event
+from services.metrics import instrument_app
 
 app = FastAPI(title="WasteWise Fleet Service", version="1.0.0")
+instrument_app(app, "fleet")
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],

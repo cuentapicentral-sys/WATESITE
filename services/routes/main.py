@@ -10,8 +10,10 @@ from services.events import consume_events, publish_event
 from services.notifications.logic import create_notification
 from services.routes.dijkstra import DEPOT, plan_collection
 from services.routes.optimization import prioritize_containers
+from services.metrics import instrument_app
 
 app = FastAPI(title="WasteWise Route Service", version="1.0.0")
+instrument_app(app, "routes")
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],

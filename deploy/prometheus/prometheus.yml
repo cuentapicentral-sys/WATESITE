@@ -1,0 +1,22 @@
+global:
+  scrape_interval: 15s
+  evaluation_interval: 15s
+
+scrape_configs:
+  - job_name: "wastewise-backend"
+    metrics_path: /metrics
+    static_configs:
+      - targets: ["backend:8001"]
+
+  - job_name: "wastewise-microservices"
+    metrics_path: /metrics
+    static_configs:
+      - targets:
+          - "container-service:8000"
+          - "sensor-service:8000"
+          - "route-service:8000"
+          - "fleet-service:8000"
+          - "citizen-service:8000"
+          - "reporting-service:8000"
+          - "notification-service:8000"
+          - "analytics-service:8000"

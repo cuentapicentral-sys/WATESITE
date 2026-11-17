@@ -5,6 +5,7 @@ from pydantic import BaseModel, Field
 from services.database import supabase
 from services.events import publish_event
 from services.operations import collected_kg, collection_status
+from services.metrics import instrument_app
 
 CONTAINER_TYPES = ("organica", "reciclable", "general", "vidrio")
 
@@ -32,6 +33,7 @@ def normalize_container_type(value: str | None) -> str:
 
 
 app = FastAPI(title="WasteWise Container Service", version="1.0.0")
+instrument_app(app, "containers")
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
